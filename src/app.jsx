@@ -2,7 +2,7 @@ import * as React from 'react';
 import { createRoot } from 'react-dom/client';
 import { Alert, TextField, CircularProgress, Button, Box, List, ListItem, ListItemText, Typography } from '@mui/material';
 import { PersonSearch } from '@mui/icons-material';
-import {ThemeProvider, createTheme } from '@mui/material/styles';
+import { ThemeProvider, createTheme } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
 
 function ResultList(props) {
@@ -31,15 +31,13 @@ function ResultList(props) {
     );
 }
 
-
 const theme = createTheme({
     palette: {
         mode: 'dark'
     }
 });
 
-
-function Search() {
+function SearchPage() {
     const [username, setUsername] = React.useState('');
     const [searchResults, setSearchResults] = React.useState([]);
     const [searching, setSearching] = React.useState(false);
@@ -77,7 +75,7 @@ function App() {
     return (
         <ThemeProvider theme={theme}>
             <CssBaseline/>
-            <Search/>
+            <SearchPage/>
         </ThemeProvider>
     )
 }
