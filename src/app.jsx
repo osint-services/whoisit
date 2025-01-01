@@ -1,37 +1,64 @@
 import * as React from 'react';
 import { createRoot } from 'react-dom/client';
-import { TextField, CircularProgress, Button, Box, List, ListItem, ListItemText, ListItemButton, Typography } from '@mui/material';
+import { Card, CardContent, TextField, CircularProgress, Button, Box, List, ListItem, ListItemText, ListItemButton, Typography, Divider } from '@mui/material';
 import { PersonSearch } from '@mui/icons-material';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
 
 function ResultList(props) {
+    const [selectedItem, setSelected] = React.useState(null);
     return (
-        <List>
-            {props.results.map(result => {
-                return (
-                    <ListItem key={result.uri}>
-                        <ListItemButton component='a' onClick={async () => {
-                            console.log(`focusing on ${result}`);
-                        }}>
-                            <ListItemText
-                                primary={result.title}
-                                secondary={
-                                    <React.Fragment>
-                                        <Typography variant='overline' sx={{ fontWeight: 'bold', display: 'block'}} component="span">Category</Typography>
-                                            {result.category}
-                                        <Typography variant='overline' sx={{ fontWeight: 'bold', display: 'block'}} component="span">URI</Typography>
-                                            {result.uri}
-                                        {'found_timestamp' in result && <Typography variant='overline' sx={{ fontWeight: 'bold', display: 'block'}} component="span">Found</Typography>}
-                                            {'found_timestamp' in result ? result.found_timestamp : null}
-                                    </React.Fragment>
-                                }
-                            />
-                        </ListItemButton>
-                    </ListItem>
-                );
-            })}
-        </List>
+        <Box sx={{ display: 'flex', flexDirection: 'row' }}>
+            <List>
+                {props.results.map(result => {
+                    return (
+                        <ListItem key={result.uri}>
+                            <ListItemButton component='a' onClick={async () => {
+                                console.log(`focusing on ${result}`);
+                                console.log(result.uri);
+                                const response = await fetch(`http://127.0.0.1:8000/focus?url=${result.uri}`);
+                                const profile = await response.json();
+                                setSelected({ 'uri': result.uri, ...profile });
+                            }}>
+                                <ListItemText
+                                    primary={result.title}
+                                    secondary={
+                                        <Box sx={{ display: 'flex', flexDirection: 'row' }}>
+                                            <Box>
+                                                <Typography variant='overline' sx={{ fontWeight: 'bold', display: 'block'}} component="span">Category</Typography>
+                                                    {result.category}
+                                                <Typography variant='overline' sx={{ fontWeight: 'bold', display: 'block'}} component="span">URI</Typography>
+                                                    {result.uri}
+                                                {'found_timestamp' in result && <Typography variant='overline' sx={{ fontWeight: 'bold', display: 'block'}} component="span">Found</Typography>}
+                                                    {'found_timestamp' in result ? result.found_timestamp : null}
+                                            </Box>
+                                            {selectedItem && selectedItem.uri == result.uri &&
+                                                <Card sx={{ marginLeft: '2.5em' }}>
+                                                    <CardContent>
+                                                        <Typography variant='h5' gutterBottom><u>Username</u></Typography>
+                                                        <Typography variant='subtitle1'>{selectedItem.username}</Typography>
+                                                        <Typography variant='h5' gutterBottom><u>Website</u></Typography>
+                                                        <Typography variant='subtitle1'>{selectedItem.website}</Typography>
+                                                        <Typography variant='h5' gutterBottom><u>Tagline</u></Typography>
+                                                        <Typography variant='subtitle1'>{selectedItem.tagline}</Typography>
+                                                        <Divider/>
+                                                        <Typography variant='h6' gutterBottom><u>Bio</u></Typography>
+                                                        <Typography variant='body2'>{selectedItem.bio}</Typography>
+                                                        <Typography variant='h6' gutterBottom><u>Country</u></Typography>
+                                                        <Typography variant="body1">{selectedItem.country}</Typography>
+                                                        <Typography variant='h6' gutterBottom><u>Related Links</u></Typography>
+                                                        <Typography>{selectedItem.links}</Typography>
+                                                    </CardContent>
+                                                </Card>}
+                                        </Box>
+                                    }
+                                />
+                            </ListItemButton>
+                        </ListItem>
+                    );
+                })}
+            </List>
+        </Box>
     );
 }
 
@@ -94,7 +121,7 @@ function App() {
     const [ready, setReady] = React.useState(false);
     
     React.useEffect(() => {
-        const socket = new WebSocket('http://127.0.0.1:8000/ws'); 
+        const socket = new WebSocket('http://127.0.0.1:8001/ws'); 
         socket.onopen = function() {
             const data = JSON.stringify({ 'type': 'CONNECTION_ESTABLISHED' });
             socket.send(data)
