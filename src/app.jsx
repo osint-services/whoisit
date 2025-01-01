@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { createRoot } from 'react-dom/client';
-import { Alert, TextField, CircularProgress, Button, Box, List, ListItem, ListItemText, Typography } from '@mui/material';
+import { TextField, CircularProgress, Button, Box, List, ListItem, ListItemText, Typography } from '@mui/material';
 import { PersonSearch } from '@mui/icons-material';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
@@ -44,7 +44,7 @@ function SearchPage(props) {
 
     const handleSearch = async () => {
         setSearching(true);
-
+        setSearchResults([]);
         props.wsRef.current.send(JSON.stringify({
             'type': 'INIT_SEARCH',
             'username': username
@@ -65,25 +65,21 @@ function SearchPage(props) {
                     case 'SEARCH_COMPLETE':
                         setSearchResults(message.data);
                         setSearching(false);
+                        break;
+                    case 'SEARCH_PROGRESS':
+                        setSearchResults(message['sites_matched']);
+                        break;
                 }
             }
         }
     }, [props.wsRef.current]);
 
-    const handleRefresh = async () => {
-        const response = await fetch(`http://0.0.0.0/scan/status/${username}`);
-        console.log(await response.json());
-    };
-
     return (
         <Box>
             <TextField disabled={searching} value={username} label="Username" onChange={e => setUsername(e.target.value)}/>
-            <Button onClick={handleRefresh}>Refresh Results</Button>
-            <Button startIcon={<PersonSearch/>} onClick={handleSearch}>Scan</Button>
-            {searching &&
-                <Alert icon={<CircularProgress color='inherit'/>} severity='success'>
-                    Successful seach initiated for {username}
-                </Alert>}
+            {searching ?
+                <CircularProgress color='inherit' sx={{ marginLeft: '2em' }}/> :
+                <Button startIcon={<PersonSearch/>} onClick={handleSearch}>Scan</Button>}
             <ResultList results={searchResults}/> 
         </Box>
     );
@@ -125,7 +121,9 @@ function App() {
     return (
         <ThemeProvider theme={theme}>
             <CssBaseline/>
-            <SearchPage wsRef={ws}/>
+            {ready ?
+                <SearchPage wsRef={ws}/> :
+                <CircularProgress color='inherit'/>}
         </ThemeProvider>
     )
 }
