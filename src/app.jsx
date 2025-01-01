@@ -37,10 +37,16 @@ const theme = createTheme({
     }
 });
 
+const wsConn = new WebSocket('http://127.0.0.1:8000/ws'); 
+wsConn.onmessage = function(event) {
+    console.log(event)
+}
+
 function SearchPage() {
     const [username, setUsername] = React.useState('');
     const [searchResults, setSearchResults] = React.useState([]);
     const [searching, setSearching] = React.useState(false);
+
 
     const handleSearch = async () => {
         setSearching(true);
