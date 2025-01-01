@@ -123,7 +123,10 @@ function App() {
             <CssBaseline/>
             {ready ?
                 <SearchPage wsRef={ws}/> :
-                <CircularProgress color='inherit'/>}
+                <Box sx={{ display: 'flex', flexDirection: 'row' }}>
+                    <Typography variant='h4'>Loading services...</Typography>
+                    <CircularProgress color='inherit' sx={{ marginLeft: '2em' }}/>
+                </Box>}
         </ThemeProvider>
     )
 }
