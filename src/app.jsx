@@ -37,26 +37,38 @@ const theme = createTheme({
     }
 });
 
-const wsConn = new WebSocket('http://127.0.0.1:8000/ws'); 
-wsConn.onmessage = function(event) {
-    console.log(event)
-}
-
-function SearchPage() {
+function SearchPage(props) {
     const [username, setUsername] = React.useState('');
     const [searchResults, setSearchResults] = React.useState([]);
     const [searching, setSearching] = React.useState(false);
 
-
     const handleSearch = async () => {
         setSearching(true);
-        const response = await fetch(`http://0.0.0.0/scan/${username}`);
-        const searchResults = await response.json();
-        if (response.ok) {
-            setSearching(false);
-            setSearchResults(searchResults);
-        }
+
+        props.wsRef.current.send(JSON.stringify({
+            'type': 'INIT_SEARCH',
+            'username': username
+        }));
     };
+
+    React.useEffect(() => {
+        if (props.wsRef.current) {
+            props.wsRef.current.onmessage = () => {
+                if (event.type !== 'message') {
+                    console.error(`Invalid event type found. ${event.type}`);
+                    return;
+                }
+
+                const message = JSON.parse(event.data);
+                console.log(message)
+                switch (message.type) {
+                    case 'SEARCH_COMPLETE':
+                        setSearchResults(message.data);
+                        setSearching(false);
+                }
+            }
+        }
+    }, [props.wsRef.current]);
 
     const handleRefresh = async () => {
         const response = await fetch(`http://0.0.0.0/scan/status/${username}`);
@@ -78,10 +90,42 @@ function SearchPage() {
 }
 
 function App() {
+    const ws = React.useRef(null);
+    const [ready, setReady] = React.useState(false);
+    
+    React.useEffect(() => {
+        const socket = new WebSocket('http://127.0.0.1:8000/ws'); 
+        socket.onopen = function() {
+            const data = JSON.stringify({ 'type': 'CONNECTION_ESTABLISHED' });
+            socket.send(data)
+        };
+
+        socket.onmessage = function(event) {
+            if (event.type !== 'message') {
+                console.error(`Invalid event type found. ${event.type}`);
+                return;
+            }
+
+            const message = JSON.parse(event.data);
+
+            switch (message.type) {
+                case 'CONNECTION_ESTABLISHED':
+                    setReady(true);
+            }
+        };
+
+        ws.current = socket;
+
+        return () => {
+            socket.close();
+        };
+
+    }, []);
+
     return (
         <ThemeProvider theme={theme}>
             <CssBaseline/>
-            <SearchPage/>
+            <SearchPage wsRef={ws}/>
         </ThemeProvider>
     )
 }
