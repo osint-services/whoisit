@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { createRoot } from 'react-dom/client';
-import { TextField, CircularProgress, Button, Box, List, ListItem, ListItemText, Typography } from '@mui/material';
+import { TextField, CircularProgress, Button, Box, List, ListItem, ListItemText, ListItemButton, Typography } from '@mui/material';
 import { PersonSearch } from '@mui/icons-material';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
@@ -11,19 +11,23 @@ function ResultList(props) {
             {props.results.map(result => {
                 return (
                     <ListItem key={result.uri}>
-                        <ListItemText
-                            primary={result.title}
-                            secondary={
-                                <React.Fragment>
-                                    <Typography variant='overline' sx={{ fontWeight: 'bold', display: 'block'}} component="span">Category</Typography>
-                                        {result.category}
-                                    <Typography variant='overline' sx={{ fontWeight: 'bold', display: 'block'}} component="span">URI</Typography>
-                                        {result.uri}
-                                    {'found_timestamp' in result && <Typography variant='overline' sx={{ fontWeight: 'bold', display: 'block'}} component="span">Found</Typography>}
-                                        {'found_timestamp' in result ? result.found_timestamp : null}
-                                </React.Fragment>
-                            }
-                        />
+                        <ListItemButton component='a' onClick={async () => {
+                            console.log(`focusing on ${result}`);
+                        }}>
+                            <ListItemText
+                                primary={result.title}
+                                secondary={
+                                    <React.Fragment>
+                                        <Typography variant='overline' sx={{ fontWeight: 'bold', display: 'block'}} component="span">Category</Typography>
+                                            {result.category}
+                                        <Typography variant='overline' sx={{ fontWeight: 'bold', display: 'block'}} component="span">URI</Typography>
+                                            {result.uri}
+                                        {'found_timestamp' in result && <Typography variant='overline' sx={{ fontWeight: 'bold', display: 'block'}} component="span">Found</Typography>}
+                                            {'found_timestamp' in result ? result.found_timestamp : null}
+                                    </React.Fragment>
+                                }
+                            />
+                        </ListItemButton>
                     </ListItem>
                 );
             })}
