@@ -10,17 +10,17 @@ function ResultList(props) {
         <List>
             {props.results.map(result => {
                 return (
-                    <ListItem key={result.uri_check}>
+                    <ListItem key={result.uri}>
                         <ListItemText
-                            primary={result.name}
+                            primary={result.title}
                             secondary={
                                 <React.Fragment>
                                     <Typography variant='overline' sx={{ fontWeight: 'bold', display: 'block'}} component="span">Category</Typography>
-                                        {result.cat}
+                                        {result.category}
                                     <Typography variant='overline' sx={{ fontWeight: 'bold', display: 'block'}} component="span">URI</Typography>
-                                        {result.uri_check}
-                                    <Typography variant='overline' sx={{ fontWeight: 'bold', display: 'block'}} component="span">Found</Typography>
-                                        {result.found_timestamp}
+                                        {result.uri}
+                                    {'found_timestamp' in result && <Typography variant='overline' sx={{ fontWeight: 'bold', display: 'block'}} component="span">Found</Typography>}
+                                        {'found_timestamp' in result ? result.found_timestamp : null}
                                 </React.Fragment>
                             }
                         />
@@ -60,7 +60,7 @@ function SearchPage(props) {
                 }
 
                 const message = JSON.parse(event.data);
-                console.log(message)
+                console.debug('incoming ws message', message)
                 switch (message.type) {
                     case 'SEARCH_COMPLETE':
                         setSearchResults(message.data);
