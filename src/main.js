@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import http from 'node:http';
 import https from 'node:https';
 import started from 'electron-squirrel-startup';
@@ -10,9 +11,53 @@ if (started) {
   app.quit();
 }
 
-const platformRoot = path.resolve(app.getAppPath(), '..');
+const findPlatformRoot = () => {
+  const candidates = [
+    app.getAppPath(),
+    path.resolve(app.getAppPath(), '..'),
+    path.resolve(app.getAppPath(), '..', '..'),
+    path.resolve(app.getAppPath(), '..', '..', '..'),
+    path.resolve(app.getAppPath(), '..', '..', '..', '..'),
+  ];
 
+  for (const candidate of candidates) {
+    if (existsSync(path.join(candidate, 'docker-compose.yml')) && existsSync(path.join(candidate, 'scripts', 'start.sh'))) {
+      return candidate;
+    }
+  }
+
+  return path.resolve(app.getAppPath(), '..', '..', '..');
+};
+
+const platformRoot = findPlatformRoot();
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const buildPathEnv = () => {
+  const defaultPaths = ['/usr/bin', '/usr/local/bin', '/snap/bin'];
+  const pathEntries = [...new Set([...(process.env.PATH || '').split(path.delimiter), ...defaultPaths])];
+  return pathEntries.filter(Boolean).join(path.delimiter);
+};
+
+const getDockerCommand = () => {
+  const candidates = [
+    process.env.DOCKER_BIN,
+    process.env.DOCKER,
+    '/usr/bin/docker',
+    '/usr/local/bin/docker',
+    '/snap/bin/docker',
+    'docker',
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    if (candidate === 'docker') {
+      continue;
+    }
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  return 'docker';
+};
 
 const probeEndpoint = (url) => {
   return new Promise((resolve) => {
@@ -50,7 +95,12 @@ const checkPlatformAvailability = async () => {
 
 const runCommand = (command, args, cwd) => {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { cwd, shell: false, stdio: 'pipe' });
+    const child = spawn(command, args, {
+      cwd,
+      shell: false,
+      stdio: 'pipe',
+      env: { ...process.env, PATH: buildPathEnv() },
+    });
     let output = '';
 
     child.stdout.on('data', (chunk) => {
@@ -75,25 +125,37 @@ const runCommand = (command, args, cwd) => {
   });
 };
 
+const checkDockerAvailability = () => {
+  const dockerBin = getDockerCommand();
+  const envWithPath = { ...process.env, PATH: buildPathEnv() };
+
+  try {
+    const result = spawnSync(dockerBin, ['--version'], { encoding: 'utf8', env: envWithPath });
+    if (result.error) {
+      return { available: false, detail: result.error.message };
+    }
+    if (result.status !== 0) {
+      const detail = (result.stderr || result.stdout || '').trim();
+      return { available: false, detail: detail || 'docker exited with a non-zero status.' };
+    }
+    return { available: true, detail: (result.stdout || result.stderr || '').trim(), binary: dockerBin };
+  } catch (error) {
+    return { available: false, detail: error.message || 'Unable to run docker.' };
+  }
+};
+
 const ensurePlatformRunning = async () => {
   const current = await checkPlatformAvailability();
   if (current.ready) {
     return { ready: true, started: false, message: current.message };
   }
 
-  const hasDocker = (() => {
-    try {
-      return Boolean(spawn.sync ? spawn.sync('docker', ['--version']).status === 0 : false);
-    } catch {
-      return false;
-    }
-  })();
-
-  if (!hasDocker) {
+  const dockerStatus = checkDockerAvailability();
+  if (!dockerStatus.available) {
     return {
       ready: false,
       started: false,
-      message: 'Docker is not available, so the UI cannot start the platform automatically.',
+      message: `Docker is not available: ${dockerStatus.detail}`,
     };
   }
 
@@ -129,6 +191,7 @@ const createWindow = () => {
     height: 760,
     webPreferences: {
       preload: MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY,
+      sandbox: false,
     },
   });
 
