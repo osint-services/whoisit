@@ -130,15 +130,29 @@ const checkDockerAvailability = () => {
   const envWithPath = { ...process.env, PATH: buildPathEnv() };
 
   try {
-    const result = spawnSync(dockerBin, ['--version'], { encoding: 'utf8', env: envWithPath });
-    if (result.error) {
-      return { available: false, detail: result.error.message };
+    const versionResult = spawnSync(dockerBin, ['--version'], { encoding: 'utf8', env: envWithPath });
+    if (versionResult.error) {
+      return { available: false, detail: versionResult.error.message };
     }
-    if (result.status !== 0) {
-      const detail = (result.stderr || result.stdout || '').trim();
+    if (versionResult.status !== 0) {
+      const detail = (versionResult.stderr || versionResult.stdout || '').trim();
       return { available: false, detail: detail || 'docker exited with a non-zero status.' };
     }
-    return { available: true, detail: (result.stdout || result.stderr || '').trim(), binary: dockerBin };
+
+    const daemonProbe = spawnSync(dockerBin, ['info', '--format', '{{.ServerVersion}}'], {
+      encoding: 'utf8',
+      env: envWithPath,
+    });
+    if (daemonProbe.status !== 0) {
+      const detail = (daemonProbe.stderr || daemonProbe.stdout || '').trim() || 'docker daemon is not reachable.';
+      return { available: false, detail, binary: dockerBin };
+    }
+
+    return {
+      available: true,
+      detail: (daemonProbe.stdout || versionResult.stdout || '').trim(),
+      binary: dockerBin,
+    };
   } catch (error) {
     return { available: false, detail: error.message || 'Unable to run docker.' };
   }
