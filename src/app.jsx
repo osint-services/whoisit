@@ -35,6 +35,7 @@ import {
   DeleteOutline,
   ExpandMore,
   History,
+  Key,
   PersonSearch,
   PhoneEnabled,
   Refresh,
@@ -57,6 +58,7 @@ const tabs = [
   { label: 'Username', icon: <PersonSearch fontSize="small" /> },
   { label: 'Phone', icon: <PhoneEnabled fontSize="small" /> },
   { label: 'Datasets', icon: <Dataset fontSize="small" /> },
+  { label: 'Integrations', icon: <Key fontSize="small" /> },
   { label: 'History', icon: <History fontSize="small" /> },
 ];
 
@@ -539,6 +541,193 @@ function DatasetWorkspace({ datasets, reloadDatasets }) {
   );
 }
 
+function IntegrationCard({ integration }) {
+  const ready = integration.configured && integration.reachable;
+  const statusLabel = ready
+    ? 'Connected'
+    : integration.configured
+      ? 'Configured · service unavailable'
+      : integration.reachable
+        ? 'Service reachable · credential source unknown'
+        : 'Not connected';
+  return (
+    <Card variant="outlined" sx={{ height: '100%' }}>
+      <CardContent>
+        <Stack direction="row" justifyContent="space-between" spacing={2}>
+          <Box>
+            <Typography variant="h6">{integration.name}</Typography>
+            <Typography variant="body2" color="text.secondary">{integration.client}</Typography>
+          </Box>
+          <Chip
+            label={statusLabel}
+            color={ready ? 'success' : integration.configured ? 'warning' : 'default'}
+            variant={ready ? 'filled' : 'outlined'}
+            size="small"
+          />
+        </Stack>
+        <Divider sx={{ my: 2 }} />
+        <Grid container spacing={2}>
+          <Grid item xs={6}>
+            <DetailItem label="Credentials" value={integration.configured ? 'Saved in platform .env' : 'Not saved'} />
+          </Grid>
+          <Grid item xs={6}>
+            <DetailItem
+              label="Service"
+              value={integration.reachable ? 'Reachable' : integration.statusCode ? `HTTP ${integration.statusCode}` : 'Unavailable'}
+            />
+          </Grid>
+        </Grid>
+      </CardContent>
+    </Card>
+  );
+}
+
+function IntegrationsWorkspace({ onPlatformRefresh }) {
+  const [status, setStatus] = React.useState(null);
+  const [credentials, setCredentials] = React.useState({
+    TWEEPY_BEARER_TOKEN: '',
+    TWILIO_ACCOUNT_SID: '',
+    TWILIO_AUTH_TOKEN: '',
+  });
+  const [loading, setLoading] = React.useState(true);
+  const [saving, setSaving] = React.useState(false);
+  const [message, setMessage] = React.useState(null);
+
+  const refresh = React.useCallback(async () => {
+    setLoading(true);
+    try {
+      if (!window.electronAPI?.getIntegrations) {
+        throw new Error('Integration settings are available in the Electron application.');
+      }
+      setStatus(await window.electronAPI.getIntegrations());
+    } catch (reason) {
+      setMessage({ severity: 'error', text: reason.message });
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  React.useEffect(() => { refresh(); }, [refresh]);
+
+  const updateCredential = (key) => (event) => {
+    setCredentials((current) => ({ ...current, [key]: event.target.value }));
+  };
+
+  const save = async () => {
+    setSaving(true);
+    setMessage(null);
+    try {
+      const result = await window.electronAPI.saveIntegrations(credentials);
+      setStatus(result.status);
+      setCredentials({
+        TWEEPY_BEARER_TOKEN: '',
+        TWILIO_ACCOUNT_SID: '',
+        TWILIO_AUTH_TOKEN: '',
+      });
+      setMessage({
+        severity: result.saved && result.restarted ? 'success' : result.saved ? 'warning' : 'info',
+        text: result.message,
+      });
+      await onPlatformRefresh();
+    } catch (reason) {
+      setMessage({ severity: 'error', text: reason.message });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const hasNewValues = Object.values(credentials).some((value) => value.trim());
+
+  return (
+    <Stack spacing={2.5}>
+      <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ sm: 'end' }} spacing={2}>
+        <Box>
+          <Typography variant="h4">Integrations</Typography>
+          <Typography color="text.secondary">See which data providers are configured and update the credentials used by the local platform.</Typography>
+        </Box>
+        <Button variant="outlined" onClick={refresh} disabled={loading} startIcon={loading ? <CircularProgress size={18} /> : <Refresh />}>
+          Refresh status
+        </Button>
+      </Stack>
+
+      {message && <Alert severity={message.severity}>{message.text}</Alert>}
+
+      <Grid container spacing={2}>
+        {(status?.integrations || []).map((integration) => (
+          <Grid item xs={12} md={4} key={integration.id}>
+            <IntegrationCard integration={integration} />
+          </Grid>
+        ))}
+        {loading && !status && (
+          <Grid item xs={12}><Paper sx={{ p: 5, textAlign: 'center' }}><CircularProgress /></Paper></Grid>
+        )}
+      </Grid>
+
+      <Paper sx={{ p: 2.5 }}>
+        <Typography variant="h6">Provider credentials</Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2.5 }}>
+          Existing values are never sent to or displayed by the UI. Leave a field blank to keep its current value.
+          New values are stored in the ignored platform <code>.env</code> file with owner-only permissions.
+        </Typography>
+        <Grid container spacing={2.5}>
+          <Grid item xs={12}>
+            <Typography variant="subtitle1">X API via Tweepy</Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+              Used for expanded public profile inspection.
+            </Typography>
+            <TextField
+              fullWidth
+              type="password"
+              autoComplete="new-password"
+              label="X API bearer token"
+              placeholder={status?.integrations?.find((item) => item.id === 'x')?.configured ? 'Configured — enter a value only to replace it' : 'Enter bearer token'}
+              value={credentials.TWEEPY_BEARER_TOKEN}
+              onChange={updateCredential('TWEEPY_BEARER_TOKEN')}
+            />
+          </Grid>
+          <Grid item xs={12}><Divider /></Grid>
+          <Grid item xs={12}>
+            <Typography variant="subtitle1">Twilio Lookup</Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+              Used for live caller-name and phone metadata lookup.
+            </Typography>
+            <Grid container spacing={2}>
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  type="password"
+                  autoComplete="new-password"
+                  label="Twilio Account SID"
+                  placeholder="AC…"
+                  value={credentials.TWILIO_ACCOUNT_SID}
+                  onChange={updateCredential('TWILIO_ACCOUNT_SID')}
+                />
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  type="password"
+                  autoComplete="new-password"
+                  label="Twilio Auth Token"
+                  placeholder="Leave blank to keep the saved token"
+                  value={credentials.TWILIO_AUTH_TOKEN}
+                  onChange={updateCredential('TWILIO_AUTH_TOKEN')}
+                />
+              </Grid>
+            </Grid>
+          </Grid>
+        </Grid>
+        <Alert severity="info" sx={{ my: 2 }}>
+          “Connected” means the credential is configured and its local API service passes readiness. It does not make a billable provider request.
+        </Alert>
+        <Button variant="contained" onClick={save} disabled={saving || !hasNewValues} startIcon={saving ? <CircularProgress size={18} /> : <Key />}>
+          {saving ? 'Saving and applying…' : 'Save and apply credentials'}
+        </Button>
+      </Paper>
+    </Stack>
+  );
+}
+
 function App() {
   const { status, refresh } = usePlatformStatus();
   const [tab, setTab] = React.useState(0);
@@ -721,7 +910,8 @@ function App() {
           />
         )}
         {tab === 2 && <DatasetWorkspace datasets={datasets} reloadDatasets={reloadDatasets} />}
-        {tab === 3 && (
+        {tab === 3 && <IntegrationsWorkspace onPlatformRefresh={refresh} />}
+        {tab === 4 && (
           <Stack spacing={2.5}>
             <Stack direction="row" justifyContent="space-between" alignItems="end">
               <Box><Typography variant="h4">Search history</Typography><Typography color="text.secondary">Recent searches stay on this device and can be rerun with one click.</Typography></Box>

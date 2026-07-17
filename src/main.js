@@ -1,10 +1,15 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
-import { existsSync } from 'node:fs';
+import { existsSync, promises as fs } from 'node:fs';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import http from 'node:http';
 import https from 'node:https';
 import started from 'electron-squirrel-startup';
+
+const {
+  getConfiguredIntegrations,
+  updateEnvContent,
+} = require('./integrationConfig.cjs');
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (started) {
@@ -99,6 +104,57 @@ const checkPlatformAvailability = async () => {
   }
 
   return { ready: true, message: 'Platform services are reachable.' };
+};
+
+const envPath = path.join(platformRoot, '.env');
+
+const readIntegrationConfiguration = async () => {
+  try {
+    return await fs.readFile(envPath, 'utf8');
+  } catch (error) {
+    if (error.code === 'ENOENT') return '';
+    throw error;
+  }
+};
+
+const checkIntegrations = async () => {
+  const configured = getConfiguredIntegrations(
+    await readIntegrationConfiguration(),
+  );
+  const [x, twilio, datasets] = await Promise.all([
+    probeEndpoint('http://127.0.0.1:80/focus/readyz'),
+    probeEndpoint('http://127.0.0.1:80/phone_search/healthz'),
+    probeEndpoint('http://127.0.0.1:80/datasets/healthz'),
+  ]);
+  return {
+    platformRootAvailable: existsSync(path.join(platformRoot, 'docker-compose.yml')),
+    integrations: [
+      {
+        id: 'x',
+        name: 'X API',
+        client: 'Tweepy',
+        configured: configured.x,
+        reachable: x.ok,
+        statusCode: x.status || null,
+      },
+      {
+        id: 'twilio',
+        name: 'Twilio Lookup',
+        client: 'Twilio SDK',
+        configured: configured.twilio,
+        reachable: twilio.ok,
+        statusCode: twilio.status || null,
+      },
+      {
+        id: 'datasets',
+        name: 'Local datasets',
+        client: 'SQLite',
+        configured: true,
+        reachable: datasets.ok,
+        statusCode: datasets.status || null,
+      },
+    ],
+  };
 };
 
 const runCommand = (command, args, cwd) => {
@@ -204,6 +260,77 @@ ipcMain.handle('platform:check', async () => {
 
 ipcMain.handle('platform:ensure', async () => {
   return ensurePlatformRunning();
+});
+
+ipcMain.handle('integrations:status', async () => {
+  return checkIntegrations();
+});
+
+ipcMain.handle('integrations:save', async (_event, credentials) => {
+  if (!existsSync(path.join(platformRoot, 'docker-compose.yml'))) {
+    throw new Error('The platform repository could not be located.');
+  }
+
+  const current = await readIntegrationConfiguration();
+  const updated = updateEnvContent(current, credentials);
+  if (!updated.updatedKeys.length) {
+    return {
+      saved: false,
+      restarted: false,
+      message: 'No new credential values were provided.',
+      status: await checkIntegrations(),
+    };
+  }
+
+  const temporaryPath = `${envPath}.${process.pid}.tmp`;
+  await fs.writeFile(temporaryPath, updated.content, { encoding: 'utf8', mode: 0o600 });
+  await fs.rename(temporaryPath, envPath);
+  await fs.chmod(envPath, 0o600);
+
+  const docker = checkDockerAvailability();
+  if (!docker.available) {
+    return {
+      saved: true,
+      restarted: false,
+      updatedKeys: updated.updatedKeys,
+      message: 'Credentials were saved. Restart the platform stack to apply them.',
+      status: await checkIntegrations(),
+    };
+  }
+
+  try {
+    const services = [];
+    if (updated.updatedKeys.includes('TWEEPY_BEARER_TOKEN')) {
+      services.push('profile_search');
+    }
+    if (
+      updated.updatedKeys.includes('TWILIO_ACCOUNT_SID')
+      || updated.updatedKeys.includes('TWILIO_AUTH_TOKEN')
+    ) {
+      services.push('phone_search');
+    }
+    await runCommand(
+      docker.binary,
+      ['compose', 'up', '-d', '--force-recreate', ...services],
+      platformRoot,
+    );
+    await wait(5000);
+    return {
+      saved: true,
+      restarted: true,
+      updatedKeys: updated.updatedKeys,
+      message: 'Credentials were saved and the API services were restarted.',
+      status: await checkIntegrations(),
+    };
+  } catch (error) {
+    return {
+      saved: true,
+      restarted: false,
+      updatedKeys: updated.updatedKeys,
+      message: `Credentials were saved, but the services could not restart: ${error.message}`,
+      status: await checkIntegrations(),
+    };
+  }
 });
 
 const createWindow = () => {

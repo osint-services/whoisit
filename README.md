@@ -9,6 +9,7 @@ The application is organized into four work areas:
 - **Username** searches public username availability and imported profile datasets together, then opens expanded X metadata or stored source records in a detail pane.
 - **Phone** combines Twilio caller-name lookup with exact E.164 matches from imported phone datasets.
 - **Datasets** imports CSV, JSON, JSONL, or NDJSON, previews rows, auto-maps familiar column names, and lets the user review or override every canonical field.
+- **Integrations** shows whether X/Tweepy, Twilio Lookup, and local datasets are configured and reachable, and provides credential replacement fields.
 - **History** stores the last 50 searches locally and can rerun them. History never leaves the device.
 
 Provider failures are isolated by source. For example, a Twilio error appears in the phone workspace while matching imported records remain usable.
@@ -31,6 +32,12 @@ npm run make      # distributable artifacts
 ```
 
 Development tools are closed by default. Set `WHOISIT_DEVTOOLS=1` before `npm start` when you want Electron DevTools to open automatically.
+
+## Integration credentials
+
+The Integrations workspace can save an X API bearer token, Twilio Account SID, and Twilio Auth Token to the parent platform's ignored `.env` file. Existing values are never returned to the renderer or displayed. Blank fields preserve their current values, writes are atomic, and the resulting file is restricted to the current operating-system user.
+
+After saving, the application attempts to recreate only the affected Compose services. If the desktop process cannot access Docker, the credentials remain saved and the UI asks the user to restart the platform stack manually.
 
 ## Data imports
 
