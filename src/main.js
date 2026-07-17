@@ -64,7 +64,8 @@ const probeEndpoint = (url) => {
     const client = url.startsWith('https') ? https : http;
     const request = client.get(url, { timeout: 3000 }, (response) => {
       response.resume();
-      resolve({ ok: true, status: response.statusCode });
+      const status = response.statusCode || 0;
+      resolve({ ok: status >= 200 && status < 300, status });
     });
 
     request.on('timeout', () => {
@@ -79,18 +80,25 @@ const probeEndpoint = (url) => {
 
 const checkPlatformAvailability = async () => {
   const probeUrls = [
-    'http://127.0.0.1:80/scan/health',
-    'http://127.0.0.1:80/focus?url=https://example.com',
+    'http://127.0.0.1:80/scan/healthz',
+    'http://127.0.0.1:80/focus/readyz',
+    'http://127.0.0.1:80/phone_search/healthz',
+    'http://127.0.0.1:80/datasets/healthz',
   ];
 
   for (const probeUrl of probeUrls) {
     const result = await probeEndpoint(probeUrl);
-    if (result.ok) {
-      return { ready: true, message: 'Platform services are reachable.' };
+    if (!result.ok) {
+      return {
+        ready: false,
+        message: result.status
+          ? `A platform service is not ready (HTTP ${result.status}).`
+          : 'A platform service is not reachable.',
+      };
     }
   }
 
-  return { ready: false, message: 'Platform services are not reachable yet.' };
+  return { ready: true, message: 'Platform services are reachable.' };
 };
 
 const runCommand = (command, args, cwd) => {
@@ -201,8 +209,11 @@ ipcMain.handle('platform:ensure', async () => {
 const createWindow = () => {
   // Create the browser window.
   const mainWindow = new BrowserWindow({
-    width: 1000,
-    height: 760,
+    width: 1320,
+    height: 860,
+    minWidth: 980,
+    minHeight: 680,
+    backgroundColor: '#09111f',
     webPreferences: {
       preload: MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY,
       sandbox: false,
@@ -212,8 +223,9 @@ const createWindow = () => {
   // and load the index.html of the app.
   mainWindow.loadURL(MAIN_WINDOW_WEBPACK_ENTRY);
 
-  // Open the DevTools.
-  mainWindow.webContents.openDevTools();
+  if (!app.isPackaged && process.env.WHOISIT_DEVTOOLS === '1') {
+    mainWindow.webContents.openDevTools();
+  }
 };
 
 // This method will be called when Electron has finished
