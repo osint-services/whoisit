@@ -6,7 +6,7 @@ Who Is It? is the Electron investigation workspace for the OSINT Services Platfo
 
 The application is organized into four work areas:
 
-- **Username** searches public username availability and imported profile datasets together, then opens expanded X metadata or stored source records in a detail pane.
+- **Username** searches public username availability and imported profile datasets together, shows public validation evidence and dataset provenance directly on each result card, then opens expanded X metadata or stored source records in a detail pane. The scan evidence remains useful when paid X API inspection has no credits.
 - **Phone** combines Twilio caller-name lookup with exact E.164 matches from imported phone datasets.
 - **Datasets** imports CSV, JSON, JSONL, or NDJSON, previews rows, auto-maps familiar column names, and lets the user review or override every canonical field.
 - **Integrations** shows whether X/Tweepy, Twilio Lookup, and local datasets are configured and reachable, and provides credential replacement fields.

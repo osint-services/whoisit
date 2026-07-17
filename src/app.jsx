@@ -310,7 +310,7 @@ function EmptyState({ title, body }) {
   );
 }
 
-function ResultRow({ title, subtitle, source, selected, onClick, action }) {
+function ResultRow({ title, subtitle, source, selected, onClick, action, children }) {
   return (
     <Card
       variant="outlined"
@@ -329,6 +329,7 @@ function ResultRow({ title, subtitle, source, selected, onClick, action }) {
           </Box>
           <Chip size="small" label={source} color={source === 'Dataset' ? 'secondary' : 'primary'} variant="outlined" />
         </Stack>
+        {children && <Box sx={{ mt: 1.5 }}>{children}</Box>}
         {action && <Box sx={{ mt: 1.5 }}>{action}</Box>}
       </CardContent>
     </Card>
@@ -882,7 +883,46 @@ function App() {
                   action={!local && record.is_valid_profile
                     ? <Button size="small" startIcon={<Search />} onClick={() => inspectProfile(record.profile_uri)}>Inspect profile</Button>
                     : null}
-                />
+                >
+                  {local ? (
+                    <Stack spacing={1}>
+                      {record.bio && (
+                        <Typography variant="body2" color="text.secondary" sx={{ display: '-webkit-box', overflow: 'hidden', WebkitBoxOrient: 'vertical', WebkitLineClamp: 2 }}>
+                          {record.bio}
+                        </Typography>
+                      )}
+                      <Grid container spacing={1}>
+                        <Grid item xs={6}><DetailItem label="Dataset" value={record.dataset_name} /></Grid>
+                        <Grid item xs={6}><DetailItem label="Location" value={record.location} /></Grid>
+                        <Grid item xs={6}><DetailItem label="Verified" value={record.verified} /></Grid>
+                        <Grid item xs={6}><DetailItem label="Confidence" value={present(record.confidence) ? `${Math.round(record.confidence * 100)}%` : null} /></Grid>
+                      </Grid>
+                      {record.observed_at && (
+                        <Typography variant="caption" color="text.secondary">
+                          Observed {new Date(record.observed_at).toLocaleString()}
+                        </Typography>
+                      )}
+                    </Stack>
+                  ) : (
+                    <Stack spacing={1}>
+                      <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+                        <Chip
+                          size="small"
+                          color={record.is_valid_profile ? 'success' : 'default'}
+                          label={record.is_valid_profile ? 'Public account confirmed' : 'Not confirmed'}
+                        />
+                        {record.validation?.reason && <Chip size="small" variant="outlined" label={humanize(record.validation.reason)} />}
+                      </Stack>
+                      {record.validation?.msg && <Typography variant="body2">{record.validation.msg}</Typography>}
+                      {record.validation?.desc && <Typography variant="caption" color="text.secondary">{record.validation.desc}</Typography>}
+                      <DetailItem label="Public profile" value={record.profile_uri} href={record.profile_uri} />
+                      <DetailItem label="Validation evidence" value={record.validation_uri} href={record.validation_uri} />
+                      <Typography variant="caption" color="text.secondary">
+                        This public scan evidence remains available even when expanded X API inspection has no credits.
+                      </Typography>
+                    </Stack>
+                  )}
+                </ResultRow>
               );
             }) : <EmptyState title="No results yet" body="Run a search to compare live profile availability with your imported records." />}
             detail={<ProfileDetail profile={selectedProfile} loading={profileLoading} error={error && profileLoading ? error : ''} />}
