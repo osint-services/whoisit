@@ -4,6 +4,16 @@ const INTEGRATION_KEYS = [
   'TWILIO_AUTH_TOKEN',
 ];
 
+function getPlatformRootCandidates(appPath, pathModule) {
+  const candidates = [appPath];
+  let current = appPath;
+  for (let depth = 0; depth < 8; depth += 1) {
+    current = pathModule.resolve(current, '..');
+    candidates.push(current);
+  }
+  return [...new Set(candidates)];
+}
+
 function parseEnv(content) {
   const values = {};
   content.split(/\r?\n/).forEach((line) => {
@@ -92,6 +102,7 @@ function updateEnvContent(content, updates) {
 
 module.exports = {
   getConfiguredIntegrations,
+  getPlatformRootCandidates,
   parseEnv,
   updateEnvContent,
   validateCredentialUpdates,

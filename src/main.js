@@ -8,6 +8,7 @@ import started from 'electron-squirrel-startup';
 
 const {
   getConfiguredIntegrations,
+  getPlatformRootCandidates,
   updateEnvContent,
 } = require('./integrationConfig.cjs');
 
@@ -17,13 +18,7 @@ if (started) {
 }
 
 const findPlatformRoot = () => {
-  const candidates = [
-    app.getAppPath(),
-    path.resolve(app.getAppPath(), '..'),
-    path.resolve(app.getAppPath(), '..', '..'),
-    path.resolve(app.getAppPath(), '..', '..', '..'),
-    path.resolve(app.getAppPath(), '..', '..', '..', '..'),
-  ];
+  const candidates = getPlatformRootCandidates(app.getAppPath(), path);
 
   for (const candidate of candidates) {
     if (existsSync(path.join(candidate, 'docker-compose.yml')) && existsSync(path.join(candidate, 'scripts', 'start.sh'))) {
@@ -31,7 +26,7 @@ const findPlatformRoot = () => {
     }
   }
 
-  return path.resolve(app.getAppPath(), '..', '..', '..');
+  return path.resolve(app.getAppPath(), '..', '..', '..', '..', '..');
 };
 
 const platformRoot = findPlatformRoot();

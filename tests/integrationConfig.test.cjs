@@ -1,12 +1,19 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const path = require('node:path');
 
 const {
   getConfiguredIntegrations,
+  getPlatformRootCandidates,
   parseEnv,
   updateEnvContent,
   validateCredentialUpdates,
 } = require('../src/integrationConfig.cjs');
+
+test('finds candidates deep enough for packaged Electron layouts', () => {
+  const appPath = '/code/platform/whoisit/out/whoisit-linux-x64/resources/app.asar';
+  assert.ok(getPlatformRootCandidates(appPath, path).includes('/code/platform'));
+});
 
 test('detects configured integrations without exposing values', () => {
   const state = getConfiguredIntegrations(
