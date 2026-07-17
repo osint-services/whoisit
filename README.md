@@ -7,7 +7,7 @@ Who Is It? is the Electron investigation workspace for the OSINT Services Platfo
 The application is organized into four work areas:
 
 - **Search** accepts usernames and phone numbers in one workspace. Auto mode routes clearly formatted phone numbers to phone services and other values to profile services; explicit Profile and Phone modes handle ambiguous identifiers. The source filter can query all sources, only connected live APIs, or only imported datasets. Profile scans retain useful public evidence when paid X inspection has no credits, while phone results combine Twilio metadata with exact E.164 dataset matches.
-- **Datasets** imports CSV, JSON, JSONL, or NDJSON, previews rows, auto-maps familiar column names, and lets the user review or override every canonical field.
+- **Datasets** provides one entity ingestion pipeline for CSV, JSON, JSONL, or NDJSON. It previews rows, auto-maps familiar columns, and accepts sparse records containing a username, profile URL, phone number, or any combination of those identifiers.
 - **Integrations** shows whether X/Tweepy, Twilio Lookup, and local datasets are configured and reachable, and provides credential replacement fields.
 - **History** stores the last 50 searches locally and can rerun them. History never leaves the device.
 
@@ -40,12 +40,9 @@ After saving, the application attempts to recreate only the affected Compose ser
 
 ## Data imports
 
-Files are parsed locally in the renderer and sent through nginx to `/datasets/import` as mapped JSON rows. Imports are limited to 10 MB and 10,000 records. The UI requires:
+Files are parsed locally in the renderer and sent through nginx to `/datasets/import` as mapped entity rows. Imports are limited to 10 MB and 10,000 records. Every row requires at least one `Username`, `Profile URL`, or E.164 `Phone number`; all other mappings are optional. A row containing both profile and phone fields creates one entity with typed associated identifiers.
 
-- `Username` or `Profile URL` for profile datasets; or
-- `Phone number` in E.164 format for phone datasets.
-
-Imported results show dataset provenance, source, observation time, confidence, normalized metadata, and the original row. Dataset files may contain sensitive or licensed data; users are responsible for access, retention, and permitted use.
+Imported results show associated identifiers alongside dataset provenance, source, observation time, confidence, normalized metadata, and the original row. Dataset files may contain sensitive or licensed data; users are responsible for access, retention, and permitted use.
 
 ## Service integration
 

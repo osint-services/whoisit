@@ -195,6 +195,40 @@ function RawDetails({ value }) {
   );
 }
 
+function EntityAssociations({ entity, currentType }) {
+  if (!entity) return null;
+  const profiles = currentType === 'profile' ? [] : entity.profiles || [];
+  const phones = currentType === 'phone' ? [] : entity.phone_numbers || [];
+  if (!profiles.length && !phones.length) return null;
+  return (
+    <Paper variant="outlined" sx={{ p: 1.5 }}>
+      <Typography variant="subtitle2" gutterBottom>Associated identifiers</Typography>
+      <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+        {profiles.map((profile) => (
+          <Chip
+            key={profile.id}
+            icon={<PersonSearch />}
+            label={`${profile.platform || 'Profile'} · @${profile.username}`}
+            component={profile.profile_uri ? Link : 'div'}
+            href={profile.profile_uri || undefined}
+            target={profile.profile_uri ? '_blank' : undefined}
+            clickable={Boolean(profile.profile_uri)}
+            variant="outlined"
+          />
+        ))}
+        {phones.map((phone) => (
+          <Chip
+            key={phone.id}
+            icon={<PhoneEnabled />}
+            label={phone.phone_number}
+            variant="outlined"
+          />
+        ))}
+      </Stack>
+    </Paper>
+  );
+}
+
 function CopyButton({ value }) {
   const [copied, setCopied] = React.useState(false);
   const copy = async () => {
@@ -232,6 +266,7 @@ function ProfileDetail({ profile, loading, error }) {
         {profile.verified_type && <Chip label={humanize(profile.verified_type)} />}
       </Stack>
       <Provenance record={profile} liveLabel="Live X API" />
+      <EntityAssociations entity={profile.entity} currentType="profile" />
       <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>{profile.bio || 'No bio provided.'}</Typography>
       <Divider />
       <Grid container spacing={2}>
@@ -285,6 +320,7 @@ function PhoneDetail({ phone }) {
         {phone.caller_type && <Chip label={humanize(phone.caller_type)} />}
       </Stack>
       <Provenance record={phone} liveLabel="Live Twilio Lookup" />
+      <EntityAssociations entity={phone.entity} currentType="phone" />
       <Grid container spacing={2}>
         {[
           ['E.164 number', phone.phone_number],
@@ -369,7 +405,6 @@ function SearchShell({ title, description, input, controls, button, context, err
 }
 
 function DatasetWorkspace({ datasets, reloadDatasets }) {
-  const [recordType, setRecordType] = React.useState('profile');
   const [schema, setSchema] = React.useState(null);
   const [fileState, setFileState] = React.useState(null);
   const [mapping, setMapping] = React.useState({});
@@ -379,10 +414,10 @@ function DatasetWorkspace({ datasets, reloadDatasets }) {
   const [importing, setImporting] = React.useState(false);
 
   React.useEffect(() => {
-    requestJson(`/datasets/schema/${recordType}`)
+    requestJson('/datasets/schema/entity')
       .then(setSchema)
       .catch((reason) => setError(reason.message));
-  }, [recordType]);
+  }, []);
 
   React.useEffect(() => {
     if (schema && fileState) setMapping(suggestMapping(schema.fields, fileState.columns));
@@ -409,11 +444,8 @@ function DatasetWorkspace({ datasets, reloadDatasets }) {
       setError('Choose a file and provide a dataset name.');
       return;
     }
-    const identifier = recordType === 'profile'
-      ? mapping.username || mapping.profile_url
-      : mapping.phone_number;
-    if (!identifier) {
-      setError(recordType === 'profile' ? 'Map Username or Profile URL before importing.' : 'Map Phone number before importing.');
+    if (!mapping.username && !mapping.profile_url && !mapping.phone_number) {
+      setError('Map at least one searchable identifier: Username, Profile URL, or Phone number.');
       return;
     }
     setImporting(true);
@@ -423,7 +455,7 @@ function DatasetWorkspace({ datasets, reloadDatasets }) {
         method: 'POST',
         body: JSON.stringify({
           name: name.trim(),
-          record_type: recordType,
+          record_type: 'entity',
           filename: fileState.filename,
           mapping,
           rows: fileState.rows,
@@ -448,7 +480,7 @@ function DatasetWorkspace({ datasets, reloadDatasets }) {
     <Stack spacing={2.5}>
       <Box>
         <Typography variant="h4">Datasets</Typography>
-        <Typography color="text.secondary">Add private, licensed, or curated records as searchable local sources. Raw source rows remain available for audit.</Typography>
+        <Typography color="text.secondary">Import sparse identity records through one pipeline. Each row can contain a profile, a phone number, or both, and raw source rows remain available for audit.</Typography>
       </Box>
       <Grid container spacing={2.5}>
         <Grid item xs={12} lg={8}>
@@ -464,20 +496,13 @@ function DatasetWorkspace({ datasets, reloadDatasets }) {
               </Button>
             </Stack>
             <Stack spacing={2}>
-              <Grid container spacing={2}>
-                <Grid item xs={12} sm={6}>
-                  <TextField select fullWidth label="Record type" value={recordType} onChange={(event) => { setRecordType(event.target.value); setMapping({}); }}>
-                    <MenuItem value="profile">Profiles</MenuItem>
-                    <MenuItem value="phone">Phone records</MenuItem>
-                  </TextField>
-                </Grid>
-                <Grid item xs={12} sm={6}>
-                  <TextField fullWidth label="Dataset name" value={name} onChange={(event) => setName(event.target.value)} />
-                </Grid>
-              </Grid>
+              <TextField fullWidth label="Dataset name" value={name} onChange={(event) => setName(event.target.value)} />
               {fileState && (
                 <>
                   <Alert severity="info">{fileState.filename}: {fileState.rows.length.toLocaleString()} rows, {fileState.columns.length} columns</Alert>
+                  <Alert severity="info" variant="outlined">
+                    Map any available fields. Every imported row needs at least one username, profile URL, or E.164 phone number; the other fields are optional.
+                  </Alert>
                   <Box>
                     <Typography variant="subtitle2" gutterBottom>Map source columns</Typography>
                     <Grid container spacing={1.5}>
@@ -511,7 +536,7 @@ function DatasetWorkspace({ datasets, reloadDatasets }) {
               {error && <Alert severity="error">{error}</Alert>}
               {result && (
                 <Alert severity={result.rejected ? 'warning' : 'success'}>
-                  Imported {result.imported.toLocaleString()} records. Rejected {result.rejected.toLocaleString()}.
+                  Imported {result.imported.toLocaleString()} entities with {result.profile_identifiers.toLocaleString()} profile and {result.phone_identifiers.toLocaleString()} phone identifiers. Rejected {result.rejected.toLocaleString()}.
                   {result.rejected_rows?.length > 0 && ` First issue: row ${result.rejected_rows[0].row_number}: ${result.rejected_rows[0].reason}`}
                 </Alert>
               )}
@@ -529,7 +554,7 @@ function DatasetWorkspace({ datasets, reloadDatasets }) {
                     <Stack direction="row" justifyContent="space-between">
                       <Box>
                         <Typography variant="subtitle1">{dataset.name}</Typography>
-                        <Typography variant="body2" color="text.secondary">{humanize(dataset.record_type)} · {dataset.row_count.toLocaleString()} records</Typography>
+                        <Typography variant="body2" color="text.secondary">{dataset.record_type === 'entity' ? 'Entities' : humanize(dataset.record_type)} · {dataset.row_count.toLocaleString()} records</Typography>
                         <Typography variant="caption" color="text.secondary">{new Date(dataset.imported_at).toLocaleString()}</Typography>
                       </Box>
                       <Tooltip title="Delete dataset"><IconButton size="small" onClick={() => removeDataset(dataset.id)}><DeleteOutline fontSize="small" /></IconButton></Tooltip>
@@ -997,6 +1022,9 @@ function App() {
                       <Grid item xs={6}><DetailItem label="Line type" value={record.line_type} /></Grid>
                       <Grid item xs={6}><DetailItem label="Country" value={record.country_code} /></Grid>
                       <Grid item xs={6}><DetailItem label="Valid" value={record.valid} /></Grid>
+                      {record.entity?.profiles?.length > 0 && (
+                        <Grid item xs={12}><DetailItem label="Associated profile" value={`@${record.entity.profiles[0].username}`} /></Grid>
+                      )}
                     </Grid>
                   </ResultRow>
                 ))
@@ -1028,6 +1056,9 @@ function App() {
                             <Grid item xs={6}><DetailItem label="Location" value={record.location} /></Grid>
                             <Grid item xs={6}><DetailItem label="Verified" value={record.verified} /></Grid>
                             <Grid item xs={6}><DetailItem label="Confidence" value={present(record.confidence) ? `${Math.round(record.confidence * 100)}%` : null} /></Grid>
+                            {record.entity?.phone_numbers?.length > 0 && (
+                              <Grid item xs={12}><DetailItem label="Associated phone" value={record.entity.phone_numbers[0].phone_number} /></Grid>
+                            )}
                           </Grid>
                           {record.observed_at && (
                             <Typography variant="caption" color="text.secondary">
