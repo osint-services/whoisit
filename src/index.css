@@ -3,10 +3,16 @@ body {
     Arial, sans-serif;
   margin: 0;
   min-height: 100vh;
-  background: #121212;
+  background:
+    radial-gradient(circle at 15% -20%, rgba(68, 133, 166, 0.22), transparent 36rem),
+    #09111f;
   color: #fff;
 }
 
 #root {
   min-height: 100vh;
+}
+
+* {
+  box-sizing: border-box;
 }

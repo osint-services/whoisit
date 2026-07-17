@@ -1,10 +1,16 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
-import { existsSync } from 'node:fs';
+import { existsSync, promises as fs } from 'node:fs';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import http from 'node:http';
 import https from 'node:https';
 import started from 'electron-squirrel-startup';
+
+const {
+  getConfiguredIntegrations,
+  getPlatformRootCandidates,
+  updateEnvContent,
+} = require('./integrationConfig.cjs');
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (started) {
@@ -12,13 +18,7 @@ if (started) {
 }
 
 const findPlatformRoot = () => {
-  const candidates = [
-    app.getAppPath(),
-    path.resolve(app.getAppPath(), '..'),
-    path.resolve(app.getAppPath(), '..', '..'),
-    path.resolve(app.getAppPath(), '..', '..', '..'),
-    path.resolve(app.getAppPath(), '..', '..', '..', '..'),
-  ];
+  const candidates = getPlatformRootCandidates(app.getAppPath(), path);
 
   for (const candidate of candidates) {
     if (existsSync(path.join(candidate, 'docker-compose.yml')) && existsSync(path.join(candidate, 'scripts', 'start.sh'))) {
@@ -26,7 +26,7 @@ const findPlatformRoot = () => {
     }
   }
 
-  return path.resolve(app.getAppPath(), '..', '..', '..');
+  return path.resolve(app.getAppPath(), '..', '..', '..', '..', '..');
 };
 
 const platformRoot = findPlatformRoot();
@@ -64,7 +64,8 @@ const probeEndpoint = (url) => {
     const client = url.startsWith('https') ? https : http;
     const request = client.get(url, { timeout: 3000 }, (response) => {
       response.resume();
-      resolve({ ok: true, status: response.statusCode });
+      const status = response.statusCode || 0;
+      resolve({ ok: status >= 200 && status < 300, status });
     });
 
     request.on('timeout', () => {
@@ -79,18 +80,76 @@ const probeEndpoint = (url) => {
 
 const checkPlatformAvailability = async () => {
   const probeUrls = [
-    'http://127.0.0.1:80/scan/health',
-    'http://127.0.0.1:80/focus?url=https://example.com',
+    'http://127.0.0.1:80/scan/healthz',
+    'http://127.0.0.1:80/focus/readyz',
+    'http://127.0.0.1:80/phone_search/healthz',
+    'http://127.0.0.1:80/datasets/healthz',
   ];
 
   for (const probeUrl of probeUrls) {
     const result = await probeEndpoint(probeUrl);
-    if (result.ok) {
-      return { ready: true, message: 'Platform services are reachable.' };
+    if (!result.ok) {
+      return {
+        ready: false,
+        message: result.status
+          ? `A platform service is not ready (HTTP ${result.status}).`
+          : 'A platform service is not reachable.',
+      };
     }
   }
 
-  return { ready: false, message: 'Platform services are not reachable yet.' };
+  return { ready: true, message: 'Platform services are reachable.' };
+};
+
+const envPath = path.join(platformRoot, '.env');
+
+const readIntegrationConfiguration = async () => {
+  try {
+    return await fs.readFile(envPath, 'utf8');
+  } catch (error) {
+    if (error.code === 'ENOENT') return '';
+    throw error;
+  }
+};
+
+const checkIntegrations = async () => {
+  const configured = getConfiguredIntegrations(
+    await readIntegrationConfiguration(),
+  );
+  const [x, twilio, datasets] = await Promise.all([
+    probeEndpoint('http://127.0.0.1:80/focus/readyz'),
+    probeEndpoint('http://127.0.0.1:80/phone_search/healthz'),
+    probeEndpoint('http://127.0.0.1:80/datasets/healthz'),
+  ]);
+  return {
+    platformRootAvailable: existsSync(path.join(platformRoot, 'docker-compose.yml')),
+    integrations: [
+      {
+        id: 'x',
+        name: 'X API',
+        client: 'Tweepy',
+        configured: configured.x,
+        reachable: x.ok,
+        statusCode: x.status || null,
+      },
+      {
+        id: 'twilio',
+        name: 'Twilio Lookup',
+        client: 'Twilio SDK',
+        configured: configured.twilio,
+        reachable: twilio.ok,
+        statusCode: twilio.status || null,
+      },
+      {
+        id: 'datasets',
+        name: 'Local datasets',
+        client: 'SQLite',
+        configured: true,
+        reachable: datasets.ok,
+        statusCode: datasets.status || null,
+      },
+    ],
+  };
 };
 
 const runCommand = (command, args, cwd) => {
@@ -198,11 +257,85 @@ ipcMain.handle('platform:ensure', async () => {
   return ensurePlatformRunning();
 });
 
+ipcMain.handle('integrations:status', async () => {
+  return checkIntegrations();
+});
+
+ipcMain.handle('integrations:save', async (_event, credentials) => {
+  if (!existsSync(path.join(platformRoot, 'docker-compose.yml'))) {
+    throw new Error('The platform repository could not be located.');
+  }
+
+  const current = await readIntegrationConfiguration();
+  const updated = updateEnvContent(current, credentials);
+  if (!updated.updatedKeys.length) {
+    return {
+      saved: false,
+      restarted: false,
+      message: 'No new credential values were provided.',
+      status: await checkIntegrations(),
+    };
+  }
+
+  const temporaryPath = `${envPath}.${process.pid}.tmp`;
+  await fs.writeFile(temporaryPath, updated.content, { encoding: 'utf8', mode: 0o600 });
+  await fs.rename(temporaryPath, envPath);
+  await fs.chmod(envPath, 0o600);
+
+  const docker = checkDockerAvailability();
+  if (!docker.available) {
+    return {
+      saved: true,
+      restarted: false,
+      updatedKeys: updated.updatedKeys,
+      message: 'Credentials were saved. Restart the platform stack to apply them.',
+      status: await checkIntegrations(),
+    };
+  }
+
+  try {
+    const services = [];
+    if (updated.updatedKeys.includes('TWEEPY_BEARER_TOKEN')) {
+      services.push('profile_search');
+    }
+    if (
+      updated.updatedKeys.includes('TWILIO_ACCOUNT_SID')
+      || updated.updatedKeys.includes('TWILIO_AUTH_TOKEN')
+    ) {
+      services.push('phone_search');
+    }
+    await runCommand(
+      docker.binary,
+      ['compose', 'up', '-d', '--force-recreate', ...services],
+      platformRoot,
+    );
+    await wait(5000);
+    return {
+      saved: true,
+      restarted: true,
+      updatedKeys: updated.updatedKeys,
+      message: 'Credentials were saved and the API services were restarted.',
+      status: await checkIntegrations(),
+    };
+  } catch (error) {
+    return {
+      saved: true,
+      restarted: false,
+      updatedKeys: updated.updatedKeys,
+      message: `Credentials were saved, but the services could not restart: ${error.message}`,
+      status: await checkIntegrations(),
+    };
+  }
+});
+
 const createWindow = () => {
   // Create the browser window.
   const mainWindow = new BrowserWindow({
-    width: 1000,
-    height: 760,
+    width: 1320,
+    height: 860,
+    minWidth: 980,
+    minHeight: 680,
+    backgroundColor: '#09111f',
     webPreferences: {
       preload: MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY,
       sandbox: false,
@@ -212,8 +345,9 @@ const createWindow = () => {
   // and load the index.html of the app.
   mainWindow.loadURL(MAIN_WINDOW_WEBPACK_ENTRY);
 
-  // Open the DevTools.
-  mainWindow.webContents.openDevTools();
+  if (!app.isPackaged && process.env.WHOISIT_DEVTOOLS === '1') {
+    mainWindow.webContents.openDevTools();
+  }
 };
 
 // This method will be called when Electron has finished

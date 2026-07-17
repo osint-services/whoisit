@@ -2,7 +2,7 @@
   "name": "whoisit",
   "productName": "whoisit",
   "version": "1.0.0",
-  "description": "My Electron application description",
+  "description": "A unified investigation workspace for public profile, phone, and imported dataset searches.",
   "main": ".webpack/main",
   "scripts": {
     "start": "electron-forge start",
@@ -10,7 +10,7 @@
     "make": "electron-forge make",
     "publish": "electron-forge publish",
     "lint": "echo \"No linting configured\"",
-    "test": "echo \"No tests configured\""
+    "test": "node --test tests/*.test.cjs"
   },
   "devDependencies": {
     "@babel/core": "^7.26.0",
