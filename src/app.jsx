@@ -51,12 +51,16 @@ const {
   parseDatasetContent,
   suggestMapping,
 } = require('./dataImport.cjs');
+const {
+  normalizeSearchQuery,
+  resolveSearchType,
+  sourceEnabled,
+} = require('./searchMode.cjs');
 
 const API_BASE = 'http://127.0.0.1:80';
 const HISTORY_KEY = 'whoisit:search-history';
 const tabs = [
-  { label: 'Username', icon: <PersonSearch fontSize="small" /> },
-  { label: 'Phone', icon: <PhoneEnabled fontSize="small" /> },
+  { label: 'Search', icon: <Search fontSize="small" /> },
   { label: 'Datasets', icon: <Dataset fontSize="small" /> },
   { label: 'Integrations', icon: <Key fontSize="small" /> },
   { label: 'History', icon: <History fontSize="small" /> },
@@ -336,7 +340,7 @@ function ResultRow({ title, subtitle, source, selected, onClick, action, childre
   );
 }
 
-function SearchShell({ title, description, input, button, error, notices, results, detail }) {
+function SearchShell({ title, description, input, controls, button, context, error, notices, results, detail }) {
   return (
     <Stack spacing={2.5}>
       <Box>
@@ -344,7 +348,8 @@ function SearchShell({ title, description, input, button, error, notices, result
         <Typography color="text.secondary">{description}</Typography>
       </Box>
       <Paper sx={{ p: 2.5 }}>
-        <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5}>{input}{button}</Stack>
+        <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5}>{input}{controls}{button}</Stack>
+        {context && <Box sx={{ mt: 1.5 }}>{context}</Box>}
         {error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}
         {notices?.map((notice) => <Alert key={notice} severity="warning" sx={{ mt: 2 }}>{notice}</Alert>)}
       </Paper>
@@ -732,15 +737,18 @@ function IntegrationsWorkspace({ onPlatformRefresh }) {
 function App() {
   const { status, refresh } = usePlatformStatus();
   const [tab, setTab] = React.useState(0);
-  const [username, setUsername] = React.useState('');
-  const [phoneNumber, setPhoneNumber] = React.useState('');
+  const [query, setQuery] = React.useState('');
+  const [searchType, setSearchType] = React.useState('auto');
+  const [resolvedType, setResolvedType] = React.useState('profile');
+  const [sourceScope, setSourceScope] = React.useState('all');
   const [usernameResults, setUsernameResults] = React.useState([]);
   const [phoneResults, setPhoneResults] = React.useState([]);
   const [selectedProfile, setSelectedProfile] = React.useState(null);
   const [selectedPhone, setSelectedPhone] = React.useState(null);
   const [profileLoading, setProfileLoading] = React.useState(false);
   const [searching, setSearching] = React.useState(false);
-  const [error, setError] = React.useState('');
+  const [searchError, setSearchError] = React.useState('');
+  const [profileError, setProfileError] = React.useState('');
   const [notices, setNotices] = React.useState([]);
   const [history, setHistory] = React.useState(loadHistory);
   const [datasets, setDatasets] = React.useState([]);
@@ -758,82 +766,120 @@ function App() {
 
   const inspectProfile = async (profileUrl) => {
     setProfileLoading(true);
-    setError('');
+    setProfileError('');
     try {
       const profile = await requestJson(`/focus?url=${encodeURIComponent(profileUrl)}`);
       setSelectedProfile({ ...profile, source_type: 'live', platform: 'X', profile_uri: profileUrl });
     } catch (reason) {
-      setError(reason.message);
+      setProfileError(reason.message);
       setSelectedProfile(null);
     } finally {
       setProfileLoading(false);
     }
   };
 
-  const runUsername = async (override) => {
-    const query = String(override ?? username).trim().replace(/^@/, '');
-    if (!query) { setError('Enter a username to search.'); return; }
-    setUsername(query);
+  const runProfile = async (searchQuery, scope) => {
     setSearching(true);
-    setError('');
+    setSearchError('');
+    setProfileError('');
     setNotices([]);
     setSelectedProfile(null);
-    const [live, local] = await Promise.allSettled([
-      requestJson(`/scan/${encodeURIComponent(query)}`),
-      requestJson(`/datasets/search/profiles?query=${encodeURIComponent(query)}&fuzzy=true`),
-    ]);
+    const requests = [];
+    const requestTypes = [];
+    if (sourceEnabled(scope, 'live')) {
+      requests.push(requestJson(`/scan/${encodeURIComponent(searchQuery)}`));
+      requestTypes.push('live');
+    }
+    if (sourceEnabled(scope, 'datasets')) {
+      requests.push(requestJson(`/datasets/search/profiles?query=${encodeURIComponent(searchQuery)}&fuzzy=true`));
+      requestTypes.push('datasets');
+    }
+    const settled = await Promise.allSettled(requests);
+    const byType = Object.fromEntries(requestTypes.map((type, index) => [type, settled[index]]));
+    const live = byType.live;
+    const local = byType.datasets;
     const next = [
-      ...(live.status === 'fulfilled' && Array.isArray(live.value)
+      ...(live?.status === 'fulfilled' && Array.isArray(live.value)
         ? live.value.map((record) => ({ ...record, result_kind: 'scan' }))
         : []),
-      ...(local.status === 'fulfilled'
+      ...(local?.status === 'fulfilled'
         ? local.value.records.map((record) => ({ ...record, result_kind: 'dataset' }))
         : []),
     ];
     setUsernameResults(next);
     setNotices([
-      ...(live.status === 'rejected' ? [`Live profile scan: ${live.reason.message}`] : []),
-      ...(local.status === 'rejected' ? [`Imported datasets: ${local.reason.message}`] : []),
+      ...(live?.status === 'rejected' ? [`Live profile scan: ${live.reason.message}`] : []),
+      ...(local?.status === 'rejected' ? [`Imported datasets: ${local.reason.message}`] : []),
     ]);
-    addHistory('username', query, next.length);
+    addHistory('profile', searchQuery, next.length);
     setSearching(false);
   };
 
-  const runPhone = async (override) => {
-    const query = String(override ?? phoneNumber).trim();
-    if (!query) { setError('Enter a phone number in E.164 format, such as +18135551212.'); return; }
-    setPhoneNumber(query);
+  const runPhone = async (searchQuery, scope) => {
     setSearching(true);
-    setError('');
+    setSearchError('');
+    setProfileError('');
     setNotices([]);
     setSelectedPhone(null);
-    const [live, local] = await Promise.allSettled([
-      requestJson(`/phone_search?phone_number=${encodeURIComponent(query)}`),
-      requestJson(`/datasets/search/phones?phone_number=${encodeURIComponent(query)}`),
-    ]);
+    const requests = [];
+    const requestTypes = [];
+    if (sourceEnabled(scope, 'live')) {
+      requests.push(requestJson(`/phone_search?phone_number=${encodeURIComponent(searchQuery)}`));
+      requestTypes.push('live');
+    }
+    if (sourceEnabled(scope, 'datasets')) {
+      requests.push(requestJson(`/datasets/search/phones?phone_number=${encodeURIComponent(searchQuery)}`));
+      requestTypes.push('datasets');
+    }
+    const settled = await Promise.allSettled(requests);
+    const byType = Object.fromEntries(requestTypes.map((type, index) => [type, settled[index]]));
+    const live = byType.live;
+    const local = byType.datasets;
     const next = [
-      ...(live.status === 'fulfilled' ? [{ ...live.value, source_type: 'live', result_kind: 'live' }] : []),
-      ...(local.status === 'fulfilled' ? local.value.records.map((record) => ({ ...record, result_kind: 'dataset' })) : []),
+      ...(live?.status === 'fulfilled' ? [{ ...live.value, source_type: 'live', result_kind: 'live' }] : []),
+      ...(local?.status === 'fulfilled' ? local.value.records.map((record) => ({ ...record, result_kind: 'dataset' })) : []),
     ];
     setPhoneResults(next);
     setSelectedPhone(next[0] || null);
     setNotices([
-      ...(live.status === 'rejected' ? [`Live phone lookup: ${live.reason.message}`] : []),
-      ...(local.status === 'rejected' ? [`Imported datasets: ${local.reason.message}`] : []),
+      ...(live?.status === 'rejected' ? [`Live phone lookup: ${live.reason.message}`] : []),
+      ...(local?.status === 'rejected' ? [`Imported datasets: ${local.reason.message}`] : []),
     ]);
-    addHistory('phone', query, next.length);
+    addHistory('phone', searchQuery, next.length);
     setSearching(false);
   };
 
-  const rerun = (item) => {
-    if (item.type === 'username') {
-      setTab(0);
-      runUsername(item.query);
+  const runSearch = async (override, typeOverride, scopeOverride) => {
+    const rawQuery = String(override ?? query).trim();
+    const selectedType = typeOverride ?? searchType;
+    const scope = scopeOverride ?? sourceScope;
+    if (!rawQuery) {
+      setSearchError('Enter a username or phone number to search.');
+      return;
+    }
+    const type = resolveSearchType(rawQuery, selectedType);
+    const normalized = normalizeSearchQuery(rawQuery, type);
+    setQuery(normalized);
+    setResolvedType(type);
+    setSearchError('');
+    if (type === 'phone') {
+      await runPhone(normalized, scope);
     } else {
-      setTab(1);
-      runPhone(item.query);
+      await runProfile(normalized, scope);
     }
   };
+
+  const rerun = (item) => {
+    const type = item.type === 'username' ? 'profile' : item.type;
+    setTab(0);
+    setSearchType(type);
+    setQuery(item.query);
+    runSearch(item.query, type, sourceScope);
+  };
+
+  const previewType = searchType === 'auto' && query.trim()
+    ? resolveSearchType(query, 'auto')
+    : resolvedType;
 
   return (
     <ThemeProvider theme={theme}>
@@ -856,7 +902,7 @@ function App() {
           <Tooltip title="Refresh platform status"><IconButton onClick={refresh}><Refresh /></IconButton></Tooltip>
         </Toolbar>
         <Container maxWidth="xl">
-          <Tabs value={tab} onChange={(_, value) => { setTab(value); setError(''); setNotices([]); }} variant="scrollable" scrollButtons="auto">
+          <Tabs value={tab} onChange={(_, value) => { setTab(value); setSearchError(''); setProfileError(''); setNotices([]); }} variant="scrollable" scrollButtons="auto">
             {tabs.map((item) => <Tab key={item.label} icon={item.icon} iconPosition="start" label={item.label} />)}
           </Tabs>
         </Container>
@@ -864,94 +910,162 @@ function App() {
       <Container maxWidth="xl" sx={{ py: 3 }}>
         {tab === 0 && (
           <SearchShell
-            title="Username search"
-            description="Search live public services and every imported profile dataset in one pass."
-            input={<TextField fullWidth autoFocus label="Username" placeholder="example" value={username} onChange={(event) => setUsername(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && runUsername()} />}
-            button={<Button variant="contained" onClick={() => runUsername()} disabled={searching} startIcon={searching ? <CircularProgress size={18} /> : <PersonSearch />}>{searching ? 'Searching…' : 'Search all sources'}</Button>}
-            error={error}
-            notices={notices}
-            results={usernameResults.length ? usernameResults.map((record, index) => {
-              const local = record.result_kind === 'dataset';
-              return (
-                <ResultRow
-                  key={record.id || record.validation_uri || index}
-                  title={local ? record.name || `@${record.username}` : record.title || 'Public profile'}
-                  subtitle={local ? `${record.platform || 'Imported'} · @${record.username}` : record.profile_uri || 'No public URL'}
-                  source={local ? 'Dataset' : 'Live scan'}
-                  selected={local && selectedProfile?.id === record.id}
-                  onClick={local ? () => setSelectedProfile(record) : undefined}
-                  action={!local && record.is_valid_profile
-                    ? <Button size="small" startIcon={<Search />} onClick={() => inspectProfile(record.profile_uri)}>Inspect profile</Button>
-                    : null}
-                >
-                  {local ? (
-                    <Stack spacing={1}>
-                      {record.bio && (
-                        <Typography variant="body2" color="text.secondary" sx={{ display: '-webkit-box', overflow: 'hidden', WebkitBoxOrient: 'vertical', WebkitLineClamp: 2 }}>
-                          {record.bio}
-                        </Typography>
-                      )}
-                      <Grid container spacing={1}>
-                        <Grid item xs={6}><DetailItem label="Dataset" value={record.dataset_name} /></Grid>
-                        <Grid item xs={6}><DetailItem label="Location" value={record.location} /></Grid>
-                        <Grid item xs={6}><DetailItem label="Verified" value={record.verified} /></Grid>
-                        <Grid item xs={6}><DetailItem label="Confidence" value={present(record.confidence) ? `${Math.round(record.confidence * 100)}%` : null} /></Grid>
-                      </Grid>
-                      {record.observed_at && (
-                        <Typography variant="caption" color="text.secondary">
-                          Observed {new Date(record.observed_at).toLocaleString()}
-                        </Typography>
-                      )}
-                    </Stack>
-                  ) : (
-                    <Stack spacing={1}>
-                      <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
-                        <Chip
-                          size="small"
-                          color={record.is_valid_profile ? 'success' : 'default'}
-                          label={record.is_valid_profile ? 'Public account confirmed' : 'Not confirmed'}
-                        />
-                        {record.validation?.reason && <Chip size="small" variant="outlined" label={humanize(record.validation.reason)} />}
-                      </Stack>
-                      {record.validation?.msg && <Typography variant="body2">{record.validation.msg}</Typography>}
-                      {record.validation?.desc && <Typography variant="caption" color="text.secondary">{record.validation.desc}</Typography>}
-                      <DetailItem label="Public profile" value={record.profile_uri} href={record.profile_uri} />
-                      <DetailItem label="Validation evidence" value={record.validation_uri} href={record.validation_uri} />
-                      <Typography variant="caption" color="text.secondary">
-                        This public scan evidence remains available even when expanded X API inspection has no credits.
-                      </Typography>
-                    </Stack>
-                  )}
-                </ResultRow>
-              );
-            }) : <EmptyState title="No results yet" body="Run a search to compare live profile availability with your imported records." />}
-            detail={<ProfileDetail profile={selectedProfile} loading={profileLoading} error={error && profileLoading ? error : ''} />}
-          />
-        )}
-        {tab === 1 && (
-          <SearchShell
-            title="Phone search"
-            description="Resolve live caller-name metadata and compare it with locally imported phone records."
-            input={<TextField fullWidth autoFocus label="Phone number" placeholder="+18135551212" value={phoneNumber} onChange={(event) => setPhoneNumber(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && runPhone()} />}
-            button={<Button variant="contained" onClick={() => runPhone()} disabled={searching} startIcon={searching ? <CircularProgress size={18} /> : <PhoneEnabled />}>{searching ? 'Searching…' : 'Search all sources'}</Button>}
-            error={error}
-            notices={notices}
-            results={phoneResults.length ? phoneResults.map((record, index) => (
-              <ResultRow
-                key={record.id || `${record.source_type}-${index}`}
-                title={record.caller_name || 'Unknown caller'}
-                subtitle={record.phone_number}
-                source={record.source_type === 'dataset' ? 'Dataset' : 'Live API'}
-                selected={selectedPhone === record}
-                onClick={() => setSelectedPhone(record)}
+            title="Search"
+            description="Investigate a username or phone number across connected APIs and imported datasets from one workspace."
+            input={(
+              <TextField
+                fullWidth
+                autoFocus
+                label="Username or phone number"
+                placeholder={searchType === 'phone' ? '+12025550101' : 'demo_ada_1843'}
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                onKeyDown={(event) => event.key === 'Enter' && runSearch()}
               />
-            )) : <EmptyState title="No results yet" body="Search an E.164 number to query live and imported sources together." />}
-            detail={<PhoneDetail phone={selectedPhone} />}
+            )}
+            controls={(
+              <>
+                <TextField
+                  select
+                  label="Search type"
+                  value={searchType}
+                  onChange={(event) => {
+                    const nextType = event.target.value;
+                    setSearchType(nextType);
+                    if (nextType !== 'auto') setResolvedType(nextType);
+                  }}
+                  sx={{ minWidth: 150 }}
+                >
+                  <MenuItem value="auto">Auto detect</MenuItem>
+                  <MenuItem value="profile">Profile</MenuItem>
+                  <MenuItem value="phone">Phone</MenuItem>
+                </TextField>
+                <TextField
+                  select
+                  label="Sources"
+                  value={sourceScope}
+                  onChange={(event) => setSourceScope(event.target.value)}
+                  sx={{ minWidth: 160 }}
+                >
+                  <MenuItem value="all">All sources</MenuItem>
+                  <MenuItem value="live">Live APIs only</MenuItem>
+                  <MenuItem value="datasets">Datasets only</MenuItem>
+                </TextField>
+              </>
+            )}
+            button={(
+              <Button
+                variant="contained"
+                onClick={() => runSearch()}
+                disabled={searching}
+                startIcon={searching ? <CircularProgress size={18} /> : previewType === 'phone' ? <PhoneEnabled /> : <PersonSearch />}
+                sx={{ minWidth: 150 }}
+              >
+                {searching ? 'Searching…' : 'Search'}
+              </Button>
+            )}
+            context={(
+              <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" alignItems="center">
+                <Chip
+                  size="small"
+                  icon={previewType === 'phone' ? <PhoneEnabled /> : <PersonSearch />}
+                  label={searchType === 'auto'
+                    ? `Auto routes this search to ${previewType === 'phone' ? 'phone' : 'profile'} services`
+                    : `${resolvedType === 'phone' ? 'Phone' : 'Profile'} search selected`}
+                  variant="outlined"
+                />
+                <Typography variant="caption" color="text.secondary">
+                  Source filters control which services are called, helping avoid unnecessary provider usage.
+                </Typography>
+              </Stack>
+            )}
+            error={searchError}
+            notices={notices}
+            results={resolvedType === 'phone'
+              ? phoneResults.length
+                ? phoneResults.map((record, index) => (
+                  <ResultRow
+                    key={record.id || `${record.source_type}-${index}`}
+                    title={record.caller_name || 'Unknown caller'}
+                    subtitle={record.phone_number}
+                    source={record.source_type === 'dataset' ? 'Dataset' : 'Live API'}
+                    selected={selectedPhone === record}
+                    onClick={() => setSelectedPhone(record)}
+                  >
+                    <Grid container spacing={1}>
+                      <Grid item xs={6}><DetailItem label="Carrier" value={record.carrier_name} /></Grid>
+                      <Grid item xs={6}><DetailItem label="Line type" value={record.line_type} /></Grid>
+                      <Grid item xs={6}><DetailItem label="Country" value={record.country_code} /></Grid>
+                      <Grid item xs={6}><DetailItem label="Valid" value={record.valid} /></Grid>
+                    </Grid>
+                  </ResultRow>
+                ))
+                : <EmptyState title="No phone results yet" body="Search an E.164 number to query the selected phone sources." />
+              : usernameResults.length
+                ? usernameResults.map((record, index) => {
+                  const local = record.result_kind === 'dataset';
+                  return (
+                    <ResultRow
+                      key={record.id || record.validation_uri || index}
+                      title={local ? record.name || `@${record.username}` : record.title || 'Public profile'}
+                      subtitle={local ? `${record.platform || 'Imported'} · @${record.username}` : record.profile_uri || 'No public URL'}
+                      source={local ? 'Dataset' : 'Live scan'}
+                      selected={local && selectedProfile?.id === record.id}
+                      onClick={local ? () => { setProfileError(''); setSelectedProfile(record); } : undefined}
+                      action={!local && record.is_valid_profile
+                        ? <Button size="small" startIcon={<Search />} onClick={() => inspectProfile(record.profile_uri)}>Inspect profile</Button>
+                        : null}
+                    >
+                      {local ? (
+                        <Stack spacing={1}>
+                          {record.bio && (
+                            <Typography variant="body2" color="text.secondary" sx={{ display: '-webkit-box', overflow: 'hidden', WebkitBoxOrient: 'vertical', WebkitLineClamp: 2 }}>
+                              {record.bio}
+                            </Typography>
+                          )}
+                          <Grid container spacing={1}>
+                            <Grid item xs={6}><DetailItem label="Dataset" value={record.dataset_name} /></Grid>
+                            <Grid item xs={6}><DetailItem label="Location" value={record.location} /></Grid>
+                            <Grid item xs={6}><DetailItem label="Verified" value={record.verified} /></Grid>
+                            <Grid item xs={6}><DetailItem label="Confidence" value={present(record.confidence) ? `${Math.round(record.confidence * 100)}%` : null} /></Grid>
+                          </Grid>
+                          {record.observed_at && (
+                            <Typography variant="caption" color="text.secondary">
+                              Observed {new Date(record.observed_at).toLocaleString()}
+                            </Typography>
+                          )}
+                        </Stack>
+                      ) : (
+                        <Stack spacing={1}>
+                          <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+                            <Chip
+                              size="small"
+                              color={record.is_valid_profile ? 'success' : 'default'}
+                              label={record.is_valid_profile ? 'Public account confirmed' : 'Not confirmed'}
+                            />
+                            {record.validation?.reason && <Chip size="small" variant="outlined" label={humanize(record.validation.reason)} />}
+                          </Stack>
+                          {record.validation?.msg && <Typography variant="body2">{record.validation.msg}</Typography>}
+                          {record.validation?.desc && <Typography variant="caption" color="text.secondary">{record.validation.desc}</Typography>}
+                          <DetailItem label="Public profile" value={record.profile_uri} href={record.profile_uri} />
+                          <DetailItem label="Validation evidence" value={record.validation_uri} href={record.validation_uri} />
+                          <Typography variant="caption" color="text.secondary">
+                            This public scan evidence remains available even when expanded X API inspection has no credits.
+                          </Typography>
+                        </Stack>
+                      )}
+                    </ResultRow>
+                  );
+                })
+                : <EmptyState title="No profile results yet" body="Search a username to query the selected profile sources." />}
+            detail={resolvedType === 'phone'
+              ? <PhoneDetail phone={selectedPhone} />
+              : <ProfileDetail profile={selectedProfile} loading={profileLoading} error={profileError} />}
           />
         )}
-        {tab === 2 && <DatasetWorkspace datasets={datasets} reloadDatasets={reloadDatasets} />}
-        {tab === 3 && <IntegrationsWorkspace onPlatformRefresh={refresh} />}
-        {tab === 4 && (
+        {tab === 1 && <DatasetWorkspace datasets={datasets} reloadDatasets={reloadDatasets} />}
+        {tab === 2 && <IntegrationsWorkspace onPlatformRefresh={refresh} />}
+        {tab === 3 && (
           <Stack spacing={2.5}>
             <Stack direction="row" justifyContent="space-between" alignItems="end">
               <Box><Typography variant="h4">Search history</Typography><Typography color="text.secondary">Recent searches stay on this device and can be rerun with one click.</Typography></Box>

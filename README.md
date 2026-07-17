@@ -6,13 +6,12 @@ Who Is It? is the Electron investigation workspace for the OSINT Services Platfo
 
 The application is organized into four work areas:
 
-- **Username** searches public username availability and imported profile datasets together, shows public validation evidence and dataset provenance directly on each result card, then opens expanded X metadata or stored source records in a detail pane. The scan evidence remains useful when paid X API inspection has no credits.
-- **Phone** combines Twilio caller-name lookup with exact E.164 matches from imported phone datasets.
+- **Search** accepts usernames and phone numbers in one workspace. Auto mode routes clearly formatted phone numbers to phone services and other values to profile services; explicit Profile and Phone modes handle ambiguous identifiers. The source filter can query all sources, only connected live APIs, or only imported datasets. Profile scans retain useful public evidence when paid X inspection has no credits, while phone results combine Twilio metadata with exact E.164 dataset matches.
 - **Datasets** imports CSV, JSON, JSONL, or NDJSON, previews rows, auto-maps familiar column names, and lets the user review or override every canonical field.
 - **Integrations** shows whether X/Tweepy, Twilio Lookup, and local datasets are configured and reachable, and provides credential replacement fields.
 - **History** stores the last 50 searches locally and can rerun them. History never leaves the device.
 
-Provider failures are isolated by source. For example, a Twilio error appears in the phone workspace while matching imported records remain usable.
+Provider failures are isolated by source. For example, a Twilio error appears alongside the current phone search while matching imported records remain usable. Selecting **Datasets only** prevents live-provider calls, which is useful when conserving API usage.
 
 ## Run and test
 
