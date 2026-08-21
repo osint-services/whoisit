@@ -4,13 +4,15 @@ Who Is It? is the native Electron investigation workspace for the [OSINT Service
 
 ## Workspaces
 
-- **Search** combines public profile, phone, and imported identity results. Provider failures stay isolated and source filters can avoid unnecessary live API calls.
+- **Search** combines public profile, phone, and imported identity results. Provider failures stay isolated and source filters can avoid unnecessary live API calls. Results with explicit coordinate evidence include a **Go to map** action.
 - **Map** calls the shared `/map/search` GeoJSON API directly. It provides place, radius, keyword, and source controls; an interactive Leaflet map; result and archive lists; provider warnings; source and accuracy badges; provenance; and associated profile/phone metadata.
 - **Datasets** previews and maps CSV, JSON, JSONL, or NDJSON into sparse entity records, including optional explicit coordinate evidence.
 - **Integrations** reports X/Tweepy, Twilio Lookup, local dataset, and Social Mapping readiness and supports protected credential replacement.
 - **History** keeps recent profile and phone searches on the local device.
 
 The Map workspace is native UI, not an embedded browser. The standalone [`social_mapping`](https://github.com/osint-services/social_mapping) client remains available for development and browser demos, and both clients consume the same API contract.
+
+Selecting **Go to map** switches workspaces and performs a coordinate-origin search centered on that evidence. Profiles and entities can use their own validated coordinate pair. A phone result can navigate only through a separately geolocated associated entity; the phone record itself never supplies or implies a location. Free-text locations do not enable the action.
 
 ## Run and test
 
@@ -39,6 +41,8 @@ The map searches by investigator-entered place, radius, optional keyword, and on
 - **X** returns recent posts only when X provides exact coordinates or a place bounding box. Place results use the bounding-box centroid and are labeled `place` accuracy.
 
 When X is unconfigured or unavailable, dataset results remain usable and the Map workspace displays a provider warning. Phone rows may appear as associated entity metadata but never create or imply a phone/device location. Free-text profile locations are not treated as post coordinates.
+
+Search-to-map handoffs query by latitude and longitude, bypass Nominatim, select the matching mapped record when available, and display whether the coordinates came from the record or an associated entity.
 
 Nominatim resolves only the investigator's entered search origin, server-side. OpenStreetMap attribution appears on the map. A marker is evidence tied to a source record, not proof of a person's present location.
 

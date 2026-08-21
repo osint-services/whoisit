@@ -62,6 +62,7 @@ const {
 const {
   MAP_ARCHIVE_KEY,
   buildMapSearchPath,
+  getMapTarget,
   normalizeMapCollection,
 } = require('./mapSearch.cjs');
 
@@ -382,6 +383,24 @@ function ResultRow({ title, subtitle, source, selected, onClick, action, childre
         {action && <Box sx={{ mt: 1.5 }}>{action}</Box>}
       </CardContent>
     </Card>
+  );
+}
+
+function GoToMapButton({ record, onGoToMap }) {
+  const target = getMapTarget(record);
+  if (!target) return null;
+  return (
+    <Button
+      size="small"
+      variant="outlined"
+      startIcon={<MapIcon />}
+      onClick={(event) => {
+        event.stopPropagation();
+        onGoToMap(target);
+      }}
+    >
+      Go to map
+    </Button>
   );
 }
 
@@ -882,8 +901,9 @@ function MapRecordDetail({ feature, onArchive, archived }) {
   );
 }
 
-function MapWorkspace() {
+function MapWorkspace({ handoff }) {
   const [place, setPlace] = React.useState('London');
+  const [coordinates, setCoordinates] = React.useState(null);
   const [radiusMiles, setRadiusMiles] = React.useState(25);
   const [keyword, setKeyword] = React.useState('');
   const [sources, setSources] = React.useState('datasets,x');
@@ -894,13 +914,27 @@ function MapWorkspace() {
   const [listMode, setListMode] = React.useState('results');
   const [archive, setArchive] = React.useState(loadMapArchive);
 
-  const runMapSearch = async () => {
+  const runMapSearch = async ({ coordinateTarget = coordinates, sourcesValue = sources, keywordValue = keyword } = {}) => {
     setLoading(true);
     setError('');
     try {
-      const payload = normalizeMapCollection(await requestJson(buildMapSearchPath({ place, radiusMiles, keyword, sources })));
+      const payload = normalizeMapCollection(await requestJson(buildMapSearchPath({
+        place: coordinateTarget ? '' : place,
+        latitude: coordinateTarget?.latitude,
+        longitude: coordinateTarget?.longitude,
+        radiusMiles,
+        keyword: keywordValue,
+        sources: sourcesValue,
+      })));
       setCollection(payload);
-      setSelected(payload.features[0] || null);
+      const requestedRecord = coordinateTarget?.recordId
+        ? payload.features.find((feature) => (
+          feature.id === coordinateTarget.recordId
+          || feature.id?.endsWith(`:${coordinateTarget.recordId}`)
+          || feature.properties?.provenance?.record_id === coordinateTarget.recordId
+        ))
+        : null;
+      setSelected(requestedRecord || payload.features[0] || null);
       setListMode('results');
     } catch (reason) {
       setError(reason.message);
@@ -908,6 +942,15 @@ function MapWorkspace() {
       setLoading(false);
     }
   };
+
+  React.useEffect(() => {
+    if (!handoff) return;
+    setPlace(handoff.label || `${handoff.latitude}, ${handoff.longitude}`);
+    setCoordinates(handoff);
+    setSources('datasets');
+    setKeyword('');
+    runMapSearch({ coordinateTarget: handoff, sourcesValue: 'datasets', keywordValue: '' });
+  }, [handoff?.requestId]);
 
   const archiveFeature = (feature) => {
     const next = [feature, ...archive.filter((item) => item.id !== feature.id)].slice(0, 100);
@@ -925,8 +968,20 @@ function MapWorkspace() {
         <Typography color="text.secondary">Explore evidence-backed locations from imported datasets and provider-supplied X geospatial data.</Typography>
       </Box>
       <Paper sx={{ p: 2.5 }}>
+        {handoff && coordinates?.requestId === handoff.requestId && (
+          <Alert severity="info" sx={{ mb: 2 }}>
+            Opened from Search using {coordinates.association === 'associated_entity' ? 'an associated entity’s' : 'the record’s'} explicit coordinates
+            {' '}({coordinates.locationAccuracy} accuracy, {humanize(coordinates.locationSource)} source).
+          </Alert>
+        )}
         <Stack direction={{ xs: 'column', lg: 'row' }} spacing={1.5} alignItems={{ lg: 'end' }}>
-          <TextField fullWidth label="Place" value={place} onChange={(event) => setPlace(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && runMapSearch()} />
+          <TextField
+            fullWidth
+            label={coordinates ? 'Mapped result' : 'Place'}
+            value={place}
+            onChange={(event) => { setPlace(event.target.value); setCoordinates(null); }}
+            onKeyDown={(event) => event.key === 'Enter' && runMapSearch({ coordinateTarget: null })}
+          />
           <TextField label="Radius (miles)" type="number" value={radiusMiles} onChange={(event) => setRadiusMiles(event.target.value)} inputProps={{ min: 1, max: 1000 }} sx={{ minWidth: 150 }} />
           <TextField fullWidth label="Keyword (optional)" value={keyword} onChange={(event) => setKeyword(event.target.value)} />
           <TextField select label="Sources" value={sources} onChange={(event) => setSources(event.target.value)} sx={{ minWidth: 170 }}>
@@ -934,7 +989,7 @@ function MapWorkspace() {
             <MenuItem value="datasets">Datasets only</MenuItem>
             <MenuItem value="x">X only</MenuItem>
           </TextField>
-          <Button variant="contained" onClick={runMapSearch} disabled={loading} startIcon={loading ? <CircularProgress size={18} /> : <MapIcon />} sx={{ minWidth: 150 }}>
+          <Button variant="contained" onClick={() => runMapSearch()} disabled={loading} startIcon={loading ? <CircularProgress size={18} /> : <MapIcon />} sx={{ minWidth: 150 }}>
             {loading ? 'Searching…' : 'Search map'}
           </Button>
         </Stack>
@@ -944,7 +999,11 @@ function MapWorkspace() {
           {Object.entries(collection.providers || {}).map(([name, provider]) => (
             <Chip key={name} size="small" label={`${humanize(name)}: ${provider.status} (${provider.count})`} color={provider.status === 'ok' ? 'success' : 'warning'} variant="outlined" />
           ))}
-          <Typography variant="caption" color="text.secondary" sx={{ alignSelf: 'center' }}>Search-origin place resolution uses server-side Nominatim with OpenStreetMap attribution.</Typography>
+          <Typography variant="caption" color="text.secondary" sx={{ alignSelf: 'center' }}>
+            {coordinates
+              ? 'This search uses explicit evidence coordinates and does not geocode free-text record locations.'
+              : 'Search-origin place resolution uses server-side Nominatim with OpenStreetMap attribution.'}
+          </Typography>
         </Stack>
       </Paper>
       <Grid container spacing={2.5} alignItems="stretch">
@@ -1001,6 +1060,7 @@ function App() {
   const [notices, setNotices] = React.useState([]);
   const [history, setHistory] = React.useState(loadHistory);
   const [datasets, setDatasets] = React.useState([]);
+  const [mapHandoff, setMapHandoff] = React.useState(null);
 
   const reloadDatasets = React.useCallback(async () => {
     try { setDatasets(await requestJson('/datasets')); } catch { /* status surface handles availability */ }
@@ -1011,6 +1071,14 @@ function App() {
     const next = [{ id: `${Date.now()}-${type}`, type, query, count, searchedAt: new Date().toISOString() }, ...history].slice(0, 50);
     setHistory(next);
     localStorage.setItem(HISTORY_KEY, JSON.stringify(next));
+  };
+
+  const goToMap = (target) => {
+    setMapHandoff({ ...target, requestId: `${Date.now()}-${target.recordId || 'coordinates'}` });
+    setTab(1);
+    setSearchError('');
+    setProfileError('');
+    setNotices([]);
   };
 
   const inspectProfile = async (profileUrl) => {
@@ -1240,6 +1308,7 @@ function App() {
                     source={record.source_type === 'dataset' ? 'Dataset' : 'Live API'}
                     selected={selectedPhone === record}
                     onClick={() => setSelectedPhone(record)}
+                    action={getMapTarget(record) ? <GoToMapButton record={record} onGoToMap={goToMap} /> : null}
                   >
                     <Grid container spacing={1}>
                       <Grid item xs={6}><DetailItem label="Carrier" value={record.carrier_name} /></Grid>
@@ -1264,8 +1333,15 @@ function App() {
                       source={local ? 'Dataset' : 'Live scan'}
                       selected={local && selectedProfile?.id === record.id}
                       onClick={local ? () => { setProfileError(''); setSelectedProfile(record); } : undefined}
-                      action={!local && record.is_valid_profile
-                        ? <Button size="small" startIcon={<Search />} onClick={() => inspectProfile(record.profile_uri)}>Inspect profile</Button>
+                      action={(!local && record.is_valid_profile) || getMapTarget(record)
+                        ? (
+                          <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+                            {!local && record.is_valid_profile && (
+                              <Button size="small" startIcon={<Search />} onClick={() => inspectProfile(record.profile_uri)}>Inspect profile</Button>
+                            )}
+                            <GoToMapButton record={record} onGoToMap={goToMap} />
+                          </Stack>
+                        )
                         : null}
                     >
                       {local ? (
@@ -1318,7 +1394,7 @@ function App() {
               : <ProfileDetail profile={selectedProfile} loading={profileLoading} error={profileError} />}
           />
         )}
-        {tab === 1 && <MapWorkspace />}
+        {tab === 1 && <MapWorkspace handoff={mapHandoff} />}
         {tab === 2 && <DatasetWorkspace datasets={datasets} reloadDatasets={reloadDatasets} />}
         {tab === 3 && <IntegrationsWorkspace onPlatformRefresh={refresh} />}
         {tab === 4 && (
