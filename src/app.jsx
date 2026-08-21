@@ -36,6 +36,7 @@ import {
   ExpandMore,
   History,
   Key,
+  Map as MapIcon,
   PersonSearch,
   PhoneEnabled,
   Refresh,
@@ -45,6 +46,8 @@ import {
 } from '@mui/icons-material';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
+import L from 'leaflet';
+import { MapContainer, Marker, Popup, TileLayer, useMap } from 'react-leaflet';
 
 const {
   getColumns,
@@ -56,11 +59,17 @@ const {
   resolveSearchType,
   sourceEnabled,
 } = require('./searchMode.cjs');
+const {
+  MAP_ARCHIVE_KEY,
+  buildMapSearchPath,
+  normalizeMapCollection,
+} = require('./mapSearch.cjs');
 
 const API_BASE = 'http://127.0.0.1:80';
 const HISTORY_KEY = 'whoisit:search-history';
 const tabs = [
   { label: 'Search', icon: <Search fontSize="small" /> },
+  { label: 'Map', icon: <MapIcon fontSize="small" /> },
   { label: 'Datasets', icon: <Dataset fontSize="small" /> },
   { label: 'Integrations', icon: <Key fontSize="small" /> },
   { label: 'History', icon: <History fontSize="small" /> },
@@ -759,6 +768,221 @@ function IntegrationsWorkspace({ onPlatformRefresh }) {
   );
 }
 
+const mapEvidenceIcon = L.divIcon({
+  className: 'whoisit-map-marker',
+  html: '<span></span>',
+  iconSize: [22, 22],
+  iconAnchor: [11, 11],
+});
+const mapOriginIcon = L.divIcon({
+  className: 'whoisit-origin-marker',
+  html: '<span></span>',
+  iconSize: [28, 28],
+  iconAnchor: [14, 14],
+});
+
+function loadMapArchive() {
+  try {
+    return JSON.parse(localStorage.getItem(MAP_ARCHIVE_KEY) || '[]');
+  } catch {
+    return [];
+  }
+}
+
+function ReframeMap({ origin, features }) {
+  const map = useMap();
+  React.useEffect(() => {
+    const points = [origin, ...features]
+      .map((item) => item?.geometry?.coordinates)
+      .filter(Boolean)
+      .map(([longitude, latitude]) => [latitude, longitude]);
+    if (points.length === 1) map.setView(points[0], 10);
+    if (points.length > 1) map.fitBounds(points, { padding: [36, 36], maxZoom: 13 });
+  }, [features, map, origin]);
+  return null;
+}
+
+function EvidenceMap({ collection, onSelect }) {
+  const origin = collection.origin;
+  const initial = origin?.geometry?.coordinates || [-0.1278, 51.5074];
+  return (
+    <MapContainer center={[initial[1], initial[0]]} zoom={4} className="whoisit-map" scrollWheelZoom>
+      <TileLayer
+        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>'
+        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+      />
+      <ReframeMap origin={origin} features={collection.features} />
+      {origin?.geometry && (
+        <Marker position={[origin.geometry.coordinates[1], origin.geometry.coordinates[0]]} icon={mapOriginIcon}>
+          <Popup><strong>Search origin</strong><br />{origin.properties?.label}</Popup>
+        </Marker>
+      )}
+      {collection.features.map((item) => (
+        <Marker
+          key={item.id}
+          position={[item.geometry.coordinates[1], item.geometry.coordinates[0]]}
+          icon={mapEvidenceIcon}
+          eventHandlers={{ click: () => onSelect(item) }}
+        >
+          <Popup>
+            <strong>{item.properties?.title || 'Mapped record'}</strong><br />
+            {item.properties?.source} · {item.properties?.location_accuracy || 'unknown accuracy'}
+          </Popup>
+        </Marker>
+      ))}
+    </MapContainer>
+  );
+}
+
+function MapRecordDetail({ feature, onArchive, archived }) {
+  if (!feature) return <EmptyState title="Select a map result" body="Choose a marker or list item to inspect its provenance and associated identity metadata." />;
+  const details = feature.properties || {};
+  return (
+    <Stack spacing={2}>
+      <Stack direction="row" justifyContent="space-between" spacing={2} alignItems="start">
+        <Box>
+          <Typography variant="h5">{details.title || 'Mapped record'}</Typography>
+          <Typography variant="body2" color="text.secondary">{details.text || 'No descriptive text was supplied.'}</Typography>
+        </Box>
+        <Button size="small" variant="outlined" onClick={() => onArchive(feature)} disabled={archived}>
+          {archived ? 'Archived' : 'Archive'}
+        </Button>
+      </Stack>
+      <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+        <Chip color={details.source === 'datasets' ? 'secondary' : 'primary'} label={details.source || 'Unknown source'} />
+        <Chip variant="outlined" label={`Accuracy: ${details.location_accuracy || 'unknown'}`} />
+        {present(details.distance_miles) && <Chip variant="outlined" label={`${details.distance_miles} miles`} />}
+        {present(details.confidence) && <Chip variant="outlined" label={`${Math.round(details.confidence * 100)}% confidence`} />}
+      </Stack>
+      <Grid container spacing={2}>
+        <Grid item xs={12} sm={6}><DetailItem label="Location source" value={details.location_source} /></Grid>
+        <Grid item xs={12} sm={6}><DetailItem label="Observed" value={details.timestamp} /></Grid>
+      </Grid>
+      {details.associated_profiles?.length > 0 && (
+        <Paper variant="outlined" sx={{ p: 1.5 }}>
+          <Typography variant="subtitle2" gutterBottom>Associated profiles</Typography>
+          <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+            {details.associated_profiles.map((profile) => (
+              <Chip key={profile.id || profile.username} icon={<PersonSearch />} label={`${profile.platform || 'Profile'} · @${profile.username}`} variant="outlined" />
+            ))}
+          </Stack>
+        </Paper>
+      )}
+      {details.associated_phones?.length > 0 && (
+        <Paper variant="outlined" sx={{ p: 1.5 }}>
+          <Typography variant="subtitle2" gutterBottom>Associated phone records</Typography>
+          <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+            {details.associated_phones.map((phone) => <Chip key={phone.id || phone.phone_number} icon={<PhoneEnabled />} label={phone.phone_number} variant="outlined" />)}
+          </Stack>
+          <Typography variant="caption" color="text.secondary">Association metadata only. A phone record does not identify or imply a phone or device location.</Typography>
+        </Paper>
+      )}
+      <RawDetails value={details.provenance} />
+    </Stack>
+  );
+}
+
+function MapWorkspace() {
+  const [place, setPlace] = React.useState('London');
+  const [radiusMiles, setRadiusMiles] = React.useState(25);
+  const [keyword, setKeyword] = React.useState('');
+  const [sources, setSources] = React.useState('datasets,x');
+  const [collection, setCollection] = React.useState({ type: 'FeatureCollection', features: [], providers: {} });
+  const [selected, setSelected] = React.useState(null);
+  const [loading, setLoading] = React.useState(false);
+  const [error, setError] = React.useState('');
+  const [listMode, setListMode] = React.useState('results');
+  const [archive, setArchive] = React.useState(loadMapArchive);
+
+  const runMapSearch = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const payload = normalizeMapCollection(await requestJson(buildMapSearchPath({ place, radiusMiles, keyword, sources })));
+      setCollection(payload);
+      setSelected(payload.features[0] || null);
+      setListMode('results');
+    } catch (reason) {
+      setError(reason.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const archiveFeature = (feature) => {
+    const next = [feature, ...archive.filter((item) => item.id !== feature.id)].slice(0, 100);
+    setArchive(next);
+    localStorage.setItem(MAP_ARCHIVE_KEY, JSON.stringify(next));
+  };
+  const archivedIds = new Set(archive.map((item) => item.id));
+  const visible = listMode === 'archive' ? archive : collection.features;
+  const warnings = Object.entries(collection.providers || {}).filter(([, provider]) => provider.warning);
+
+  return (
+    <Stack spacing={2.5}>
+      <Box>
+        <Typography variant="h4">Map</Typography>
+        <Typography color="text.secondary">Explore evidence-backed locations from imported datasets and provider-supplied X geospatial data.</Typography>
+      </Box>
+      <Paper sx={{ p: 2.5 }}>
+        <Stack direction={{ xs: 'column', lg: 'row' }} spacing={1.5} alignItems={{ lg: 'end' }}>
+          <TextField fullWidth label="Place" value={place} onChange={(event) => setPlace(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && runMapSearch()} />
+          <TextField label="Radius (miles)" type="number" value={radiusMiles} onChange={(event) => setRadiusMiles(event.target.value)} inputProps={{ min: 1, max: 1000 }} sx={{ minWidth: 150 }} />
+          <TextField fullWidth label="Keyword (optional)" value={keyword} onChange={(event) => setKeyword(event.target.value)} />
+          <TextField select label="Sources" value={sources} onChange={(event) => setSources(event.target.value)} sx={{ minWidth: 170 }}>
+            <MenuItem value="datasets,x">Datasets and X</MenuItem>
+            <MenuItem value="datasets">Datasets only</MenuItem>
+            <MenuItem value="x">X only</MenuItem>
+          </TextField>
+          <Button variant="contained" onClick={runMapSearch} disabled={loading} startIcon={loading ? <CircularProgress size={18} /> : <MapIcon />} sx={{ minWidth: 150 }}>
+            {loading ? 'Searching…' : 'Search map'}
+          </Button>
+        </Stack>
+        {error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}
+        {warnings.map(([name, provider]) => <Alert key={name} severity="warning" sx={{ mt: 2 }}>{humanize(name)}: {provider.warning}</Alert>)}
+        <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mt: 2 }}>
+          {Object.entries(collection.providers || {}).map(([name, provider]) => (
+            <Chip key={name} size="small" label={`${humanize(name)}: ${provider.status} (${provider.count})`} color={provider.status === 'ok' ? 'success' : 'warning'} variant="outlined" />
+          ))}
+          <Typography variant="caption" color="text.secondary" sx={{ alignSelf: 'center' }}>Search-origin place resolution uses server-side Nominatim with OpenStreetMap attribution.</Typography>
+        </Stack>
+      </Paper>
+      <Grid container spacing={2.5} alignItems="stretch">
+        <Grid item xs={12} lg={8}>
+          <Paper sx={{ height: 620, overflow: 'hidden' }}><EvidenceMap collection={collection} onSelect={setSelected} /></Paper>
+        </Grid>
+        <Grid item xs={12} lg={4}>
+          <Paper sx={{ height: 620, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <Tabs value={listMode} onChange={(_, value) => setListMode(value)} variant="fullWidth">
+              <Tab value="results" label={`Results (${collection.features.length})`} />
+              <Tab value="archive" label={`Archive (${archive.length})`} />
+            </Tabs>
+            <Stack spacing={1} sx={{ p: 1.5, overflow: 'auto' }}>
+              {visible.map((feature) => (
+                <ResultRow
+                  key={feature.id}
+                  title={feature.properties?.title || 'Mapped record'}
+                  subtitle={`${feature.properties?.location_accuracy || 'Unknown accuracy'} · ${feature.properties?.distance_miles ?? '—'} mi`}
+                  source={feature.properties?.source === 'datasets' ? 'Dataset' : 'X'}
+                  selected={selected?.id === feature.id}
+                  onClick={() => setSelected(feature)}
+                />
+              ))}
+              {!visible.length && <EmptyState title={listMode === 'archive' ? 'No archived markers' : 'No map results yet'} body="Search a place or choose another source." />}
+            </Stack>
+          </Paper>
+        </Grid>
+        <Grid item xs={12}>
+          <Paper sx={{ p: 2.5 }}>
+            <MapRecordDetail feature={selected} onArchive={archiveFeature} archived={selected ? archivedIds.has(selected.id) : false} />
+          </Paper>
+        </Grid>
+      </Grid>
+      <Alert severity="info" variant="outlined">A marker is an evidence record, not proof of a person's present location. Place-centroid results are less precise than exact coordinates.</Alert>
+    </Stack>
+  );
+}
+
 function App() {
   const { status, refresh } = usePlatformStatus();
   const [tab, setTab] = React.useState(0);
@@ -1094,9 +1318,10 @@ function App() {
               : <ProfileDetail profile={selectedProfile} loading={profileLoading} error={profileError} />}
           />
         )}
-        {tab === 1 && <DatasetWorkspace datasets={datasets} reloadDatasets={reloadDatasets} />}
-        {tab === 2 && <IntegrationsWorkspace onPlatformRefresh={refresh} />}
-        {tab === 3 && (
+        {tab === 1 && <MapWorkspace />}
+        {tab === 2 && <DatasetWorkspace datasets={datasets} reloadDatasets={reloadDatasets} />}
+        {tab === 3 && <IntegrationsWorkspace onPlatformRefresh={refresh} />}
+        {tab === 4 && (
           <Stack spacing={2.5}>
             <Stack direction="row" justifyContent="space-between" alignItems="end">
               <Box><Typography variant="h4">Search history</Typography><Typography color="text.secondary">Recent searches stay on this device and can be rerun with one click.</Typography></Box>

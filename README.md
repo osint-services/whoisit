@@ -1,17 +1,16 @@
 # Who Is It?
 
-Who Is It? is the Electron investigation workspace for the OSINT Services Platform.
+Who Is It? is the native Electron investigation workspace for the [OSINT Services Platform](https://github.com/osint-services/platform).
 
-## Experience
+## Workspaces
 
-The application is organized into four work areas:
+- **Search** combines public profile, phone, and imported identity results. Provider failures stay isolated and source filters can avoid unnecessary live API calls.
+- **Map** calls the shared `/map/search` GeoJSON API directly. It provides place, radius, keyword, and source controls; an interactive Leaflet map; result and archive lists; provider warnings; source and accuracy badges; provenance; and associated profile/phone metadata.
+- **Datasets** previews and maps CSV, JSON, JSONL, or NDJSON into sparse entity records, including optional explicit coordinate evidence.
+- **Integrations** reports X/Tweepy, Twilio Lookup, local dataset, and Social Mapping readiness and supports protected credential replacement.
+- **History** keeps recent profile and phone searches on the local device.
 
-- **Search** accepts usernames and phone numbers in one workspace. Auto mode routes clearly formatted phone numbers to phone services and other values to profile services; explicit Profile and Phone modes handle ambiguous identifiers. The source filter can query all sources, only connected live APIs, or only imported datasets. Profile scans retain useful public evidence when paid X inspection has no credits, while phone results combine Twilio metadata with exact E.164 dataset matches.
-- **Datasets** provides one entity ingestion pipeline for CSV, JSON, JSONL, or NDJSON. It previews rows, auto-maps familiar columns, and accepts sparse records containing a username, profile URL, phone number, or any combination of those identifiers.
-- **Integrations** shows whether X/Tweepy, Twilio Lookup, and local datasets are configured and reachable, and provides credential replacement fields.
-- **History** stores the last 50 searches locally and can rerun them. History never leaves the device.
-
-Provider failures are isolated by source. For example, a Twilio error appears alongside the current phone search while matching imported records remain usable. Selecting **Datasets only** prevents live-provider calls, which is useful when conserving API usage.
+The Map workspace is native UI, not an embedded browser. The standalone [`social_mapping`](https://github.com/osint-services/social_mapping) client remains available for development and browser demos, and both clients consume the same API contract.
 
 ## Run and test
 
@@ -25,32 +24,43 @@ npm start
 Useful commands:
 
 ```bash
-npm test          # CSV/JSON/JSONL parser tests
-npm run package   # unpacked desktop application
-npm run make      # distributable artifacts
+npm test
+npm run package
+npm audit --omit=dev
 ```
 
-Development tools are closed by default. Set `WHOISIT_DEVTOOLS=1` before `npm start` when you want Electron DevTools to open automatically.
+Set `WHOISIT_DEVTOOLS=1` before `npm start` to open Electron DevTools.
 
-## Integration credentials
+## Map behavior and accuracy
 
-The Integrations workspace can save an X API bearer token, Twilio Account SID, and Twilio Auth Token to the parent platform's ignored `.env` file. Existing values are never returned to the renderer or displayed. Blank fields preserve their current values, writes are atomic, and the resulting file is restricted to the current operating-system user.
+The map searches by investigator-entered place, radius, optional keyword, and one or both initial sources:
 
-After saving, the application attempts to recreate only the affected Compose services. If the desktop process cannot access Docker, the credentials remain saved and the UI asks the user to restart the platform stack manually.
+- **Datasets** returns only imported entities or profiles with a valid explicit latitude/longitude pair.
+- **X** returns recent posts only when X provides exact coordinates or a place bounding box. Place results use the bounding-box centroid and are labeled `place` accuracy.
+
+When X is unconfigured or unavailable, dataset results remain usable and the Map workspace displays a provider warning. Phone rows may appear as associated entity metadata but never create or imply a phone/device location. Free-text profile locations are not treated as post coordinates.
+
+Nominatim resolves only the investigator's entered search origin, server-side. OpenStreetMap attribution appears on the map. A marker is evidence tied to a source record, not proof of a person's present location.
 
 ## Data imports
 
-Files are parsed locally in the renderer and sent through nginx to `/datasets/import` as mapped entity rows. Imports are limited to 10 MB and 10,000 records. Every row requires at least one `Username`, `Profile URL`, or E.164 `Phone number`; all other mappings are optional. A row containing both profile and phone fields creates one entity with typed associated identifiers.
+Files are parsed in the renderer and sent to `/datasets/import`. Imports are limited to 10 MB and 10,000 records. Every entity row requires a username, profile URL, or E.164 phone number. Optional coordinate fields are `latitude`, `longitude`, `location_accuracy`, and `location_source`; latitude and longitude must be a valid pair.
 
-Imported results show associated identifiers alongside dataset provenance, source, observation time, confidence, normalized metadata, and the original row. Dataset files may contain sensitive or licensed data; users are responsible for access, retention, and permitted use.
+Imported results retain dataset provenance, source, observation time, confidence, and the original row. Import only data you are authorized to retain and use.
 
 ## Service integration
 
-The application talks to `http://127.0.0.1:80`:
+The app calls `http://127.0.0.1:80`:
 
 - `/scan/{username}`
 - `/focus?url=...`
 - `/phone_search?phone_number=...`
 - `/datasets/...`
+- `/map/search`
+- `/map/readyz`
 
-The main process checks all four services and can invoke the parent repository's `scripts/start.sh` when the stack is unavailable.
+Core platform readiness no longer requires an X credential. X integration status remains visible separately, while credential-free dataset search and mapping continue to work.
+
+## License
+
+GPL-3.0-only. See [LICENSE](LICENSE).
