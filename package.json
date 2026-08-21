@@ -2,7 +2,7 @@
   "name": "whoisit",
   "productName": "whoisit",
   "version": "1.0.0",
-  "description": "A unified investigation workspace for public profile, phone, and imported dataset searches.",
+  "description": "A unified investigation workspace for public profiles, phones, imported datasets, and evidence-oriented maps.",
   "main": ".webpack/main",
   "scripts": {
     "start": "electron-forge start",
@@ -31,18 +31,20 @@
     "node-loader": "^2.1.0",
     "style-loader": "^3.3.4"
   },
-  "keywords": [],
+  "keywords": ["osint", "investigation", "geospatial", "geojson", "leaflet"],
   "author": {
     "name": "Akeem King",
     "email": "akeemtlking@gmail.com"
   },
-  "license": "MIT",
+  "license": "GPL-3.0-only",
   "dependencies": {
     "@emotion/styled": "^11.14.0",
     "@mui/icons-material": "^6.3.0",
     "@mui/material": "^6.3.0",
     "electron-squirrel-startup": "^1.0.1",
+    "leaflet": "^1.9.4",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "react-leaflet": "^5.0.0"
   }
 }

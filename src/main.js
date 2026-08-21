@@ -81,9 +81,9 @@ const probeEndpoint = (url) => {
 const checkPlatformAvailability = async () => {
   const probeUrls = [
     'http://127.0.0.1:80/scan/healthz',
-    'http://127.0.0.1:80/focus/readyz',
     'http://127.0.0.1:80/phone_search/healthz',
     'http://127.0.0.1:80/datasets/healthz',
+    'http://127.0.0.1:80/map/readyz',
   ];
 
   for (const probeUrl of probeUrls) {
@@ -116,10 +116,11 @@ const checkIntegrations = async () => {
   const configured = getConfiguredIntegrations(
     await readIntegrationConfiguration(),
   );
-  const [x, twilio, datasets] = await Promise.all([
+  const [x, twilio, datasets, mapping] = await Promise.all([
     probeEndpoint('http://127.0.0.1:80/focus/readyz'),
     probeEndpoint('http://127.0.0.1:80/phone_search/healthz'),
     probeEndpoint('http://127.0.0.1:80/datasets/healthz'),
+    probeEndpoint('http://127.0.0.1:80/map/readyz'),
   ]);
   return {
     platformRootAvailable: existsSync(path.join(platformRoot, 'docker-compose.yml')),
@@ -147,6 +148,14 @@ const checkIntegrations = async () => {
         configured: true,
         reachable: datasets.ok,
         statusCode: datasets.status || null,
+      },
+      {
+        id: 'mapping',
+        name: 'Social Mapping',
+        client: 'GeoJSON / Leaflet',
+        configured: true,
+        reachable: mapping.ok,
+        statusCode: mapping.status || null,
       },
     ],
   };
@@ -296,7 +305,7 @@ ipcMain.handle('integrations:save', async (_event, credentials) => {
   try {
     const services = [];
     if (updated.updatedKeys.includes('TWEEPY_BEARER_TOKEN')) {
-      services.push('profile_search');
+      services.push('profile_search', 'social_mapping');
     }
     if (
       updated.updatedKeys.includes('TWILIO_ACCOUNT_SID')
