@@ -4,6 +4,8 @@
 
 ### Added
 
+- **Certificates** shows historical certificate records for configured domains, the last successful refresh, and exact matches against names you paste. Failed refreshes retain the previous snapshot.
+
 - Native Map workspace backed by the shared Social Mapping GeoJSON API.
 - Place, radius, keyword, and source controls with interactive map and result/archive views.
 - Provider degradation warnings, source and accuracy badges, provenance details, and associated identity/phone metadata.

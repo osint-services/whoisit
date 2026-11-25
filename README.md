@@ -4,6 +4,8 @@ Who Is It? is the native Electron investigation workspace for the [OSINT Service
 
 ## Workspaces
 
+- **Certificates** shows historical certificate records for configured domains, the last successful refresh, and exact matches against names you paste. Failed refreshes retain the previous snapshot.
+
 - **Search** combines public profile, phone, and imported identity results. Provider failures stay isolated and source filters can avoid unnecessary live API calls. Results with explicit coordinate evidence include a **Go to map** action.
 - **Map** calls the shared `/map/search` GeoJSON API directly. It provides place, radius, keyword, and source controls; an interactive Leaflet map; result and archive lists; provider warnings; source and accuracy badges; provenance; and associated profile/phone metadata.
 - **Datasets** previews and maps CSV, JSON, JSONL, or NDJSON into sparse entity records, including optional explicit coordinate evidence.
