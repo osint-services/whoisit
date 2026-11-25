@@ -5,6 +5,7 @@ const {
   buildMapSearchPath,
   getMapTarget,
   normalizeMapCollection,
+  selectMapFeature,
 } = require('../src/mapSearch.cjs');
 
 test('builds the canonical map query with source controls', () => {
@@ -99,4 +100,12 @@ test('keeps only valid GeoJSON point features', () => {
   });
   assert.deepEqual(payload.features.map((item) => item.id), ['valid']);
   assert.throws(() => normalizeMapCollection({ features: [] }), /invalid GeoJSON/);
+});
+
+test('map handoffs select only their requested record', () => {
+  const nearby = { id: 'dataset:B' };
+  const target = { id: 'dataset:A' };
+  assert.equal(selectMapFeature([nearby], 'A'), null);
+  assert.equal(selectMapFeature([nearby, target], 'A'), target);
+  assert.equal(selectMapFeature([nearby]), nearby);
 });

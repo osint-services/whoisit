@@ -86,7 +86,17 @@ function normalizeMapCollection(payload) {
   return { ...payload, features };
 }
 
+function selectMapFeature(features, recordId) {
+  if (!recordId) return features[0] || null;
+  return features.find((feature) =>
+    feature.id === recordId ||
+    (typeof feature.id === 'string' && feature.id.endsWith(':' + recordId)) ||
+    feature.properties?.provenance?.record_id === recordId
+  ) || null;
+}
+
 module.exports = {
+  selectMapFeature,
   MAP_ARCHIVE_KEY,
   buildMapSearchPath,
   getMapTarget,

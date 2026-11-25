@@ -64,6 +64,7 @@ const {
   buildMapSearchPath,
   getMapTarget,
   normalizeMapCollection,
+  selectMapFeature,
 } = require('./mapSearch.cjs');
 
 const API_BASE = 'http://127.0.0.1:80';
@@ -914,8 +915,11 @@ function MapWorkspace({ handoff, consumedHandoffId }) {
   const [listMode, setListMode] = React.useState('results');
   const [archive, setArchive] = React.useState(loadMapArchive);
 
+  const [missingHandoff, setMissingHandoff] = React.useState(false);
+
   const runMapSearch = async ({ coordinateTarget = coordinates, sourcesValue = sources, keywordValue = keyword } = {}) => {
     setLoading(true);
+    setMissingHandoff(false);
     setError('');
     try {
       const payload = normalizeMapCollection(await requestJson(buildMapSearchPath({
@@ -927,14 +931,9 @@ function MapWorkspace({ handoff, consumedHandoffId }) {
         sources: sourcesValue,
       })));
       setCollection(payload);
-      const requestedRecord = coordinateTarget?.recordId
-        ? payload.features.find((feature) => (
-          feature.id === coordinateTarget.recordId
-          || feature.id?.endsWith(`:${coordinateTarget.recordId}`)
-          || feature.properties?.provenance?.record_id === coordinateTarget.recordId
-        ))
-        : null;
-      setSelected(requestedRecord || payload.features[0] || null);
+      const match = selectMapFeature(payload.features, coordinateTarget?.recordId);
+      setSelected(match);
+      setMissingHandoff(Boolean(coordinateTarget?.recordId && !match));
       setListMode('results');
     } catch (reason) {
       setError(reason.message);
@@ -969,6 +968,7 @@ function MapWorkspace({ handoff, consumedHandoffId }) {
         <Typography color="text.secondary">Explore evidence-backed locations from imported datasets and provider-supplied X geospatial data.</Typography>
       </Box>
       <Paper sx={{ p: 2.5 }}>
+        {coordinates && missingHandoff && <Alert severity="info">The original search record was not returned in these map results.</Alert>}
         {handoff && coordinates?.requestId === handoff.requestId && (
           <Alert severity="info" sx={{ mb: 2 }}>
             Opened from Search using {coordinates.association === 'associated_entity' ? 'an associated entity’s' : 'the record’s'} explicit coordinates
