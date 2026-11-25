@@ -1,3 +1,4 @@
+import CertificateInventory from './CertificateInventory.jsx';
 import * as React from 'react';
 import { createRoot } from 'react-dom/client';
 import {
@@ -75,6 +76,7 @@ const tabs = [
   { label: 'Datasets', icon: <Dataset fontSize="small" /> },
   { label: 'Integrations', icon: <Key fontSize="small" /> },
   { label: 'History', icon: <History fontSize="small" /> },
+  { label: 'Certificates', icon: <Storage fontSize="small" /> },
 ];
 
 const theme = createTheme({
@@ -1399,6 +1401,7 @@ function App() {
         {tab === 1 && <MapWorkspace handoff={mapHandoff} consumedHandoffId={consumedHandoffId} />}
         {tab === 2 && <DatasetWorkspace datasets={datasets} reloadDatasets={reloadDatasets} />}
         {tab === 3 && <IntegrationsWorkspace onPlatformRefresh={refresh} />}
+        {tab === 5 && <CertificateInventory requestJson={requestJson} />}
         {tab === 4 && (
           <Stack spacing={2.5}>
             <Stack direction="row" justifyContent="space-between" alignItems="end">
