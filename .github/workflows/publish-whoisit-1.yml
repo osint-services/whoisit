@@ -1,0 +1,39 @@
+name: Publish Whoisit v1.0.0
+on:
+  push:
+    branches: [release/whoisit-v1.0.0]
+permissions:
+  contents: read
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: bd66d8d9987996baec1bf1878e13ae9772c9d62f
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: sudo apt-get update -qq && sudo apt-get install -y fakeroot dpkg
+      - run: npm ci && npm test
+      - run: npm run make -- --targets @electron-forge/maker-deb
+      - run: dpkg-deb --info out/make/deb/x64/*.deb
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-deb
+          path: out/make/deb/x64/*.deb
+          if-no-files-found: error
+  publish:
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux-deb
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create v1.0.0 *.deb --repo osint-services/whoisit --target bd66d8d9987996baec1bf1878e13ae9772c9d62f --title "Whoisit v1.0.0" --notes "First desktop release of Whoisit. Includes Search, Map, Datasets, Integrations, History, and the Certificates workspace for configured owned domains. Requires the [OSINT Services Platform v1.1.0 backend](https://github.com/osint-services/platform/releases/tag/v1.1.0) running locally. The attached package is for Debian/Ubuntu on x86-64."
