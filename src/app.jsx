@@ -901,7 +901,7 @@ function MapRecordDetail({ feature, onArchive, archived }) {
   );
 }
 
-function MapWorkspace({ handoff }) {
+function MapWorkspace({ handoff, consumedHandoffId }) {
   const [place, setPlace] = React.useState('London');
   const [coordinates, setCoordinates] = React.useState(null);
   const [radiusMiles, setRadiusMiles] = React.useState(25);
@@ -944,7 +944,8 @@ function MapWorkspace({ handoff }) {
   };
 
   React.useEffect(() => {
-    if (!handoff) return;
+    if (!handoff || consumedHandoffId.current === handoff.requestId) return;
+    consumedHandoffId.current = handoff.requestId;
     setPlace(handoff.label || `${handoff.latitude}, ${handoff.longitude}`);
     setCoordinates(handoff);
     setSources('datasets');
@@ -980,7 +981,7 @@ function MapWorkspace({ handoff }) {
             label={coordinates ? 'Mapped result' : 'Place'}
             value={place}
             onChange={(event) => { setPlace(event.target.value); setCoordinates(null); }}
-            onKeyDown={(event) => event.key === 'Enter' && runMapSearch({ coordinateTarget: null })}
+            onKeyDown={(event) => event.key === 'Enter' && runMapSearch()}
           />
           <TextField label="Radius (miles)" type="number" value={radiusMiles} onChange={(event) => setRadiusMiles(event.target.value)} inputProps={{ min: 1, max: 1000 }} sx={{ minWidth: 150 }} />
           <TextField fullWidth label="Keyword (optional)" value={keyword} onChange={(event) => setKeyword(event.target.value)} />
@@ -1060,6 +1061,7 @@ function App() {
   const [notices, setNotices] = React.useState([]);
   const [history, setHistory] = React.useState(loadHistory);
   const [datasets, setDatasets] = React.useState([]);
+  const consumedHandoffId = React.useRef(null);
   const [mapHandoff, setMapHandoff] = React.useState(null);
 
   const reloadDatasets = React.useCallback(async () => {
@@ -1394,7 +1396,7 @@ function App() {
               : <ProfileDetail profile={selectedProfile} loading={profileLoading} error={profileError} />}
           />
         )}
-        {tab === 1 && <MapWorkspace handoff={mapHandoff} />}
+        {tab === 1 && <MapWorkspace handoff={mapHandoff} consumedHandoffId={consumedHandoffId} />}
         {tab === 2 && <DatasetWorkspace datasets={datasets} reloadDatasets={reloadDatasets} />}
         {tab === 3 && <IntegrationsWorkspace onPlatformRefresh={refresh} />}
         {tab === 4 && (
