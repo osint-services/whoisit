@@ -69,6 +69,7 @@ const {
 } = require('./mapSearch.cjs');
 
 const API_BASE = 'http://127.0.0.1:80';
+const MAX_IMPORT_REQUEST_BYTES = 16 * 1024 * 1024;
 const HISTORY_KEY = 'whoisit:search-history';
 const tabs = [
   { label: 'Search', icon: <Search fontSize="small" /> },
@@ -486,16 +487,17 @@ function DatasetWorkspace({ datasets, reloadDatasets }) {
     setImporting(true);
     setError('');
     try {
-      const imported = await requestJson('/datasets/import', {
-        method: 'POST',
-        body: JSON.stringify({
-          name: name.trim(),
-          record_type: 'entity',
-          filename: fileState.filename,
-          mapping,
-          rows: fileState.rows,
-        }),
+      const body = JSON.stringify({
+        name: name.trim(),
+        record_type: 'entity',
+        filename: fileState.filename,
+        mapping,
+        rows: fileState.rows,
       });
+      if (new TextEncoder().encode(body).byteLength > MAX_IMPORT_REQUEST_BYTES) {
+        throw new Error('The import request exceeds 16 MiB after conversion to JSON. Split the file and retry.');
+      }
+      const imported = await requestJson('/datasets/import', { method: 'POST', body });
       setResult(imported);
       await reloadDatasets();
     } catch (reason) {
@@ -737,7 +739,7 @@ function IntegrationsWorkspace({ onPlatformRefresh }) {
         </Typography>
         <Grid container spacing={2.5}>
           <Grid item xs={12}>
-            <Typography variant="subtitle1">X API via Tweepy</Typography>
+            <Typography variant="subtitle1">X API</Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
               Used for expanded public profile inspection.
             </Typography>

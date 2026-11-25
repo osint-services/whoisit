@@ -5,13 +5,23 @@ const path = require('node:path');
 const test = require('node:test');
 const { checkDocker, getPackagedPlatform, startPackagedPlatform } = require('../src/packagedPlatform.cjs');
 
-test('Docker and Compose v2 failures give distinct setup instructions', async () => {
+test('Docker and Compose failures give distinct setup instructions', async () => {
   await assert.rejects(checkDocker(async () => { throw new Error('missing'); }), /Install Docker/);
-  await assert.rejects(checkDocker(async () => '1.29.2'), /Compose v2 plugin/);
+  await assert.rejects(checkDocker(async () => '1.29.2'), /Compose v2 or v5 plugin/);
   await assert.rejects(checkDocker(async ([command]) => {
     if (command === 'info') throw new Error('permission denied');
     return '2.32.4';
   }), /grant your desktop user access/);
+});
+
+test('local platform accepts Compose v2 and v5 on Docker Engine 28 or newer', async () => {
+  for (const composeVersion of ['v2.40.3', '5.6.0']) {
+    const runDocker = async ([command]) => command === 'info' ? '28.0.0' : composeVersion;
+    await checkDocker(runDocker);
+  }
+  await assert.rejects(checkDocker(async ([command]) => (
+    command === 'info' ? '27.5.1' : '5.6.0'
+  )), /Docker Engine 28 or newer/);
 });
 
 test('packaged startup loads absent images and preserves writable settings on repeat launch', async (t) => {
@@ -37,6 +47,7 @@ test('packaged startup loads absent images and preserves writable settings on re
   const runDocker = async (args) => {
     calls.push(args);
     if (args.includes('--short')) return 'v2.32.4';
+    if (args[0] === 'info') return '29.1.3';
     if (args[0] === 'context') return 'unix:///var/run/docker.sock';
     if (args.includes('--images')) return 'osint-services/phone_search:1.2.0\nosint-services/proxy:1.2.0';
     if (args[0] === 'image' && !imagesLoaded) throw new Error('image missing');

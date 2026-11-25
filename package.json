@@ -3,7 +3,7 @@
   "productName": "whoisit",
   "version": "1.0.0",
   "description": "A unified investigation workspace for public profiles, phones, imported datasets, and evidence-oriented maps.",
-  "main": ".webpack/main",
+  "main": ".webpack/main/index.cjs",
   "scripts": {
     "start": "electron-forge start",
     "package": "electron-forge package",
@@ -15,23 +15,29 @@
   "devDependencies": {
     "@babel/core": "^7.26.0",
     "@babel/preset-react": "^7.26.3",
-    "@electron-forge/cli": "^7.6.0",
-    "@electron-forge/maker-deb": "^7.6.0",
-    "@electron-forge/maker-rpm": "^7.6.0",
-    "@electron-forge/maker-squirrel": "^7.6.0",
-    "@electron-forge/maker-zip": "^7.6.0",
-    "@electron-forge/plugin-auto-unpack-natives": "^7.6.0",
-    "@electron-forge/plugin-fuses": "^7.6.0",
-    "@electron-forge/plugin-webpack": "^7.6.0",
-    "@electron/fuses": "^1.8.0",
+    "@electron-forge/cli": "8.0.1",
+    "@electron-forge/maker-deb": "8.0.1",
+    "@electron-forge/maker-rpm": "8.0.1",
+    "@electron-forge/maker-squirrel": "8.0.1",
+    "@electron-forge/maker-zip": "8.0.1",
+    "@electron-forge/plugin-auto-unpack-natives": "8.0.1",
+    "@electron-forge/plugin-fuses": "8.0.1",
+    "@electron-forge/plugin-webpack": "8.0.1",
+    "@electron/fuses": "^2.1.3",
     "@vercel/webpack-asset-relocator-loader": "^1.7.3",
     "babel-loader": "^9.2.1",
     "css-loader": "^6.11.0",
-    "electron": "33.2.1",
+    "electron": "45.5.0",
     "node-loader": "^2.1.0",
     "style-loader": "^3.3.4"
   },
-  "keywords": ["osint", "investigation", "geospatial", "geojson", "leaflet"],
+  "keywords": [
+    "osint",
+    "investigation",
+    "geospatial",
+    "geojson",
+    "leaflet"
+  ],
   "author": {
     "name": "Akeem King",
     "email": "akeemtlking@gmail.com"
@@ -43,8 +49,11 @@
     "@mui/material": "^6.3.0",
     "electron-squirrel-startup": "^1.0.1",
     "leaflet": "^1.9.4",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
     "react-leaflet": "^5.0.0"
+  },
+  "engines": {
+    "node": ">=22.17.0"
   }
 }
