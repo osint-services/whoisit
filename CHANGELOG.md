@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+- Updated Electron and Forge, enabled renderer sandboxing, and opened HTTP and HTTPS links in the default browser.
+- Added Compose v5 support and required Docker Engine 28 or newer for managed startup.
+- Set an explicit limit for serialized dataset imports.
+
 ### Added
 
 - Support for the platform Debian package, including bundled backend images, Docker Compose startup, and per-user settings.

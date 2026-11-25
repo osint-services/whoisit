@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, shell } from 'electron';
 import { existsSync, promises as fs } from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -256,11 +256,20 @@ const createWindow = () => {
     backgroundColor: '#09111f',
     webPreferences: {
       preload: MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY,
-      sandbox: false,
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false,
     },
   });
 
-  // and load the index.html of the app.
+  mainWindow.webContents.on('will-navigate', (event) => event.preventDefault());
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (URL.canParse(url) && ['https:', 'http:'].includes(new URL(url).protocol)) {
+      void shell.openExternal(url).catch(() => {});
+    }
+    return { action: 'deny' };
+  });
+
   mainWindow.loadURL(MAIN_WINDOW_WEBPACK_ENTRY);
 
   if (!app.isPackaged && process.env.WHOISIT_DEVTOOLS === '1') {

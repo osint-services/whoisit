@@ -4,7 +4,7 @@ Who Is It? is the native Electron investigation workspace for the [OSINT Service
 
 ## Install Whoisit
 
-[Download Whoisit v1.0.0 for Debian or Ubuntu x86-64](https://github.com/osint-services/whoisit/releases/download/v1.0.0/whoisit_1.0.0_amd64.deb) and install it with `sudo apt install ./whoisit_1.0.0_amd64.deb`. Start the [platform v1.1.0 backend](https://github.com/osint-services/platform/tree/v1.1.0#requirements-and-setup) before launching the app. The desktop package connects to the backend at `http://127.0.0.1:80`. Run Docker Compose and manage settings from the platform checkout.
+Install the unified Debian or Ubuntu x86-64 package from [OSINT Services Platform releases](https://github.com/osint-services/platform/releases/latest). The package includes Whoisit and the prebuilt backend images. Follow the [platform installer guide](https://github.com/osint-services/platform/blob/main/docs/debian-installer.md) for Docker prerequisites, first launch, and upgrades.
 
 ## Workspaces
 
@@ -34,7 +34,7 @@ Useful commands:
 ```bash
 npm test
 npm run package
-npm audit --omit=dev
+npm audit --audit-level=high
 ```
 
 Set `WHOISIT_DEVTOOLS=1` before `npm start` to open Electron DevTools.
@@ -54,7 +54,7 @@ Nominatim resolves only the investigator's entered search origin, server-side. O
 
 ## Data imports
 
-Files are parsed in the renderer and sent to `/datasets/import`. Imports are limited to 10 MB and 10,000 records. Every entity row requires a username, profile URL, or E.164 phone number. Optional coordinate fields are `latitude`, `longitude`, `location_accuracy`, and `location_source`; latitude and longitude must be a valid pair.
+Files are parsed in the renderer and sent to `/datasets/import`. Imports accept files up to 10 MiB and 10,000 records. The generated JSON request can be up to 16 MiB. Every entity row requires a username, profile URL, or E.164 phone number. Optional coordinate fields are `latitude`, `longitude`, `location_accuracy`, and `location_source`; latitude and longitude must be a valid pair.
 
 Imported results retain dataset provenance, source, observation time, confidence, and the original row. Import only data you are authorized to retain and use.
 

@@ -43,9 +43,9 @@ async function checkDocker(runDocker, { local = false } = {}) {
 
   try {
     const version = await runDocker(['compose', 'version', '--short']);
-    if (!/^v?2\./.test(version)) throw new Error('Unsupported Compose major version');
+    if (!/^v?(2|5)\./.test(version)) throw new Error('Unsupported Compose major version');
   } catch {
-    throw new Error('Install the Docker Compose v2 plugin.');
+    throw new Error('Install the Docker Compose v2 or v5 plugin.');
   }
 
   if (local) {
@@ -57,10 +57,15 @@ async function checkDocker(runDocker, { local = false } = {}) {
     }
   }
 
+  let engineVersion;
   try {
-    await runDocker(['info', '--format', '{{.ServerVersion}}']);
+    engineVersion = await runDocker(['info', '--format', '{{.ServerVersion}}']);
   } catch {
     throw new Error('Start Docker and grant your desktop user access to its daemon, then retry.');
+  }
+  const engineMajor = /^v?(\d+)\./.exec(engineVersion)?.[1];
+  if (!engineMajor || Number(engineMajor) < 28) {
+    throw new Error('Docker Engine 28 or newer is required to keep the gateway local.');
   }
 }
 
