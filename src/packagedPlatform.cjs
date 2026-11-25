@@ -67,7 +67,11 @@ async function checkDocker(runDocker, { local = false } = {}) {
 async function prepareSettings(layout) {
   await fs.mkdir(layout.settingsDir, { recursive: true, mode: 0o700 });
   const file = await fs.open(layout.envPath, 'a', 0o600);
-  await file.close();
+  try {
+    await file.chmod(0o600);
+  } finally {
+    await file.close();
+  }
 }
 
 async function startPackagedPlatform(layout, runDocker) {
@@ -84,7 +88,13 @@ async function startPackagedPlatform(layout, runDocker) {
     '--env-file', layout.envPath, '--file', layout.composePath,
   ];
   const compose = (args, timeout) => runDocker([...composeArgs, ...args], { cwd: layout.root, timeout });
-  const images = (await compose(['config', '--images'])).split(/\s+/).filter(Boolean);
+  let images;
+  try {
+    images = (await compose(['config', '--images'])).split(/\s+/).filter(Boolean);
+    if (!images.length) throw new Error('No bundled images');
+  } catch {
+    throw new Error('Docker could not read the platform configuration. Check your settings file and retry.');
+  }
   try {
     await runDocker(['image', 'inspect', '--format', '{{.Id}}', ...images]);
   } catch {
