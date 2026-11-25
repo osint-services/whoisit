@@ -102,7 +102,7 @@ const checkIntegrations = async () => {
       {
         id: 'x',
         name: 'X API',
-        client: 'Tweepy',
+        client: 'HTTPS',
         configured: configured.x,
         reachable: x.ok,
         statusCode: x.status || null,

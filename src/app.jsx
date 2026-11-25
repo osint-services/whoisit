@@ -739,7 +739,7 @@ function IntegrationsWorkspace({ onPlatformRefresh }) {
         </Typography>
         <Grid container spacing={2.5}>
           <Grid item xs={12}>
-            <Typography variant="subtitle1">X API via Tweepy</Typography>
+            <Typography variant="subtitle1">X API</Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
               Used for expanded public profile inspection.
             </Typography>

@@ -13,7 +13,7 @@ Install the unified Debian or Ubuntu x86-64 package from [OSINT Services Platfor
 - **Search** combines public profile, phone, and imported identity results. Provider failures stay isolated and source filters can avoid unnecessary live API calls. Results with explicit coordinate evidence include a **Go to map** action.
 - **Map** calls the shared `/map/search` GeoJSON API directly. It provides place, radius, keyword, and source controls; an interactive Leaflet map; result and archive lists; provider warnings; source and accuracy badges; provenance; and associated profile/phone metadata.
 - **Datasets** previews and maps CSV, JSON, JSONL, or NDJSON into sparse entity records, including optional explicit coordinate evidence.
-- **Integrations** reports X/Tweepy, Twilio Lookup, local dataset, and Social Mapping readiness and supports protected credential replacement.
+- **Integrations** reports X API, Twilio Lookup, local dataset, and Social Mapping readiness and supports protected credential replacement.
 - **History** keeps recent profile and phone searches on the local device.
 
 The Map workspace is native UI, not an embedded browser. The standalone [`social_mapping`](https://github.com/osint-services/social_mapping) client remains available for development and browser demos, and both clients consume the same API contract.
