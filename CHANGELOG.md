@@ -4,6 +4,8 @@
 
 ### Added
 
+- Support for the platform Debian package, including bundled backend images, Docker Compose startup, and per-user settings.
+
 - **Certificates** shows historical certificate records for configured domains, the last successful refresh, and exact matches against names you paste. Failed refreshes retain the previous snapshot.
 
 - Native Map workspace backed by the shared Social Mapping GeoJSON API.

@@ -140,12 +140,16 @@ function usePlatformStatus() {
       setStatus({ ready: true, checking: false, message: 'Connected through direct API calls.' });
       return;
     }
-    const result = await window.electronAPI.ensurePlatform();
-    setStatus({
-      ready: Boolean(result?.ready),
-      checking: false,
-      message: result?.message || 'Platform status unknown.',
-    });
+    try {
+      const result = await window.electronAPI.ensurePlatform();
+      setStatus({
+        ready: Boolean(result?.ready),
+        checking: false,
+        message: result?.message || 'Platform status unknown.',
+      });
+    } catch {
+      setStatus({ ready: false, checking: false, message: 'Could not check platform services. Retry to reconnect.' });
+    }
   }, []);
   React.useEffect(() => { refresh(); }, [refresh]);
   return { status, refresh };
@@ -1229,6 +1233,11 @@ function App() {
         </Container>
       </AppBar>
       <Container maxWidth="xl" sx={{ py: 3 }}>
+        {!status.checking && !status.ready && (
+          <Alert severity="warning" sx={{ mb: 2 }} action={<Button onClick={refresh}>Retry</Button>}>
+            {status.message}
+          </Alert>
+        )}
         {tab === 0 && (
           <SearchShell
             title="Search"

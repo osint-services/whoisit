@@ -1,9 +1,17 @@
+const path = require('node:path');
+
 const { FusesPlugin } = require('@electron-forge/plugin-fuses');
 const { FuseV1Options, FuseVersion } = require('@electron/fuses');
+
+const platformResources = process.env.WHOISIT_PLATFORM_RESOURCES;
+if (platformResources && path.basename(platformResources) !== 'osint-platform') {
+  throw new Error('WHOISIT_PLATFORM_RESOURCES must point to the osint-platform resource directory.');
+}
 
 module.exports = {
   packagerConfig: {
     asar: true,
+    ...(platformResources && { extraResource: [path.resolve(platformResources)] }),
   },
   rebuildConfig: {},
   makers: [
