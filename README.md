@@ -2,6 +2,10 @@
 
 Who Is It? is the native Electron investigation workspace for the [OSINT Services Platform](https://github.com/osint-services/platform).
 
+## Install Whoisit
+
+[Download Whoisit v1.0.0 for Debian or Ubuntu x86-64](https://github.com/osint-services/whoisit/releases/download/v1.0.0/whoisit_1.0.0_amd64.deb) and install it with `sudo apt install ./whoisit_1.0.0_amd64.deb`. Start the [platform v1.1.0 backend](https://github.com/osint-services/platform/tree/v1.1.0#requirements-and-setup) before launching the app. The desktop package connects to the backend at `http://127.0.0.1:80`. Run Docker Compose and manage settings from the platform checkout.
+
 ## Workspaces
 
 - **Certificates** shows historical certificate records for configured domains, the last successful refresh, and exact matches against names you paste. Failed refreshes retain the previous snapshot.
@@ -16,7 +20,7 @@ The Map workspace is native UI, not an embedded browser. The standalone [`social
 
 Selecting **Go to map** switches workspaces and performs a coordinate-origin search centered on that evidence. Profiles and entities can use their own validated coordinate pair. A phone result can navigate only through a separately geolocated associated entity; the phone record itself never supplies or implies a location. Free-text locations do not enable the action.
 
-## Run and test
+## Development setup and tests
 
 Start the parent platform stack first, then:
 
