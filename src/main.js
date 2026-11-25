@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
 import { existsSync, promises as fs } from 'node:fs';
 import path from 'node:path';
-import { spawn, spawnSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import http from 'node:http';
 import https from 'node:https';
 import started from 'electron-squirrel-startup';
@@ -11,6 +11,13 @@ const {
   getPlatformRootCandidates,
   updateEnvContent,
 } = require('./integrationConfig.cjs');
+
+const {
+  checkDocker,
+  createDockerRunner,
+  getPackagedPlatform,
+  startPackagedPlatform,
+} = require('./packagedPlatform.cjs');
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (started) {
@@ -29,35 +36,14 @@ const findPlatformRoot = () => {
   return path.resolve(app.getAppPath(), '..', '..', '..', '..', '..');
 };
 
-const platformRoot = findPlatformRoot();
+const packagedPlatform = app.isPackaged
+  ? getPackagedPlatform(process.resourcesPath, app.getPath('userData'))
+  : null;
+const platformRoot = packagedPlatform?.root ?? findPlatformRoot();
+const composePath = packagedPlatform?.composePath ?? path.join(platformRoot, 'docker-compose.yml');
+const envPath = packagedPlatform?.envPath ?? path.join(platformRoot, '.env');
+const runDocker = createDockerRunner();
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-const buildPathEnv = () => {
-  const defaultPaths = ['/usr/bin', '/usr/local/bin', '/snap/bin'];
-  const pathEntries = [...new Set([...(process.env.PATH || '').split(path.delimiter), ...defaultPaths])];
-  return pathEntries.filter(Boolean).join(path.delimiter);
-};
-
-const getDockerCommand = () => {
-  const candidates = [
-    process.env.DOCKER_BIN,
-    process.env.DOCKER,
-    '/usr/bin/docker',
-    '/usr/local/bin/docker',
-    '/snap/bin/docker',
-    'docker',
-  ].filter(Boolean);
-
-  for (const candidate of candidates) {
-    if (candidate === 'docker') {
-      continue;
-    }
-    if (existsSync(candidate)) {
-      return candidate;
-    }
-  }
-
-  return 'docker';
-};
 
 const probeEndpoint = (url) => {
   return new Promise((resolve) => {
@@ -79,29 +65,17 @@ const probeEndpoint = (url) => {
 };
 
 const checkPlatformAvailability = async () => {
-  const probeUrls = [
-    'http://127.0.0.1:80/scan/healthz',
-    'http://127.0.0.1:80/phone_search/healthz',
-    'http://127.0.0.1:80/datasets/healthz',
-    'http://127.0.0.1:80/map/readyz',
-  ];
-
-  for (const probeUrl of probeUrls) {
-    const result = await probeEndpoint(probeUrl);
-    if (!result.ok) {
-      return {
-        ready: false,
-        message: result.status
-          ? `A platform service is not ready (HTTP ${result.status}).`
-          : 'A platform service is not reachable.',
-      };
-    }
+  const routes = ['/scan/healthz', '/phone_search/healthz', '/datasets/healthz', '/map/readyz'];
+  if (packagedPlatform) routes.push('/focus/healthz');
+  const results = await Promise.all(routes.map((route) => probeEndpoint(`http://127.0.0.1:80${route}`)));
+  const unavailable = results.findIndex((result) => !result.ok);
+  if (unavailable !== -1) {
+    const { status } = results[unavailable];
+    const detail = status ? `returned HTTP ${status}` : 'was unreachable';
+    return { ready: false, message: `The platform endpoint ${routes[unavailable]} ${detail}.` };
   }
-
-  return { ready: true, message: 'Platform services are reachable.' };
+  return { ready: true, message: 'Platform services are ready.' };
 };
-
-const envPath = path.join(platformRoot, '.env');
 
 const readIntegrationConfiguration = async () => {
   try {
@@ -123,7 +97,7 @@ const checkIntegrations = async () => {
     probeEndpoint('http://127.0.0.1:80/map/readyz'),
   ]);
   return {
-    platformRootAvailable: existsSync(path.join(platformRoot, 'docker-compose.yml')),
+    platformRootAvailable: existsSync(composePath),
     integrations: [
       {
         id: 'x',
@@ -161,101 +135,43 @@ const checkIntegrations = async () => {
   };
 };
 
-const runCommand = (command, args, cwd) => {
-  return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
-      cwd,
-      shell: false,
-      stdio: 'pipe',
-      env: { ...process.env, PATH: buildPathEnv() },
-    });
-    let output = '';
-
-    child.stdout.on('data', (chunk) => {
-      output += chunk.toString();
-    });
-
-    child.stderr.on('data', (chunk) => {
-      output += chunk.toString();
-    });
-
-    child.on('error', (error) => {
-      reject(error);
-    });
-
-    child.on('close', (code) => {
-      if (code === 0) {
-        resolve(output);
-      } else {
-        reject(new Error(output || `Process exited with ${code}`));
-      }
-    });
-  });
-};
-
-const checkDockerAvailability = () => {
-  const dockerBin = getDockerCommand();
-  const envWithPath = { ...process.env, PATH: buildPathEnv() };
-
-  try {
-    const versionResult = spawnSync(dockerBin, ['--version'], { encoding: 'utf8', env: envWithPath });
-    if (versionResult.error) {
-      return { available: false, detail: versionResult.error.message };
-    }
-    if (versionResult.status !== 0) {
-      const detail = (versionResult.stderr || versionResult.stdout || '').trim();
-      return { available: false, detail: detail || 'docker exited with a non-zero status.' };
-    }
-
-    const daemonProbe = spawnSync(dockerBin, ['info', '--format', '{{.ServerVersion}}'], {
-      encoding: 'utf8',
-      env: envWithPath,
-    });
-    if (daemonProbe.status !== 0) {
-      const detail = (daemonProbe.stderr || daemonProbe.stdout || '').trim() || 'docker daemon is not reachable.';
-      return { available: false, detail, binary: dockerBin };
-    }
-
-    return {
-      available: true,
-      detail: (daemonProbe.stdout || versionResult.stdout || '').trim(),
-      binary: dockerBin,
-    };
-  } catch (error) {
-    return { available: false, detail: error.message || 'Unable to run docker.' };
-  }
-};
-
 const ensurePlatformRunning = async () => {
-  const current = await checkPlatformAvailability();
-  if (current.ready) {
-    return { ready: true, started: false, message: current.message };
-  }
-
-  const dockerStatus = checkDockerAvailability();
-  if (!dockerStatus.available) {
-    return {
-      ready: false,
-      started: false,
-      message: `Docker is not available: ${dockerStatus.detail}`,
-    };
-  }
-
   try {
-    await runCommand('bash', ['scripts/start.sh'], platformRoot);
-    await wait(15000);
-    const refreshed = await checkPlatformAvailability();
-    if (refreshed.ready) {
-      return { ready: true, started: true, message: 'The platform stack was started successfully.' };
+    if (packagedPlatform) {
+      await startPackagedPlatform(packagedPlatform, runDocker);
+    } else {
+      const current = await checkPlatformAvailability();
+      if (current.ready) return current;
+      if (!existsSync(composePath)) {
+        return { ready: false, message: 'Start the local OSINT Services backend and retry.' };
+      }
+      await checkDocker(runDocker);
+      await runDocker(['compose', 'up', '--build', '--detach'], { cwd: platformRoot, timeout: 15 * 60_000 });
     }
-    return { ready: false, started: true, message: refreshed.message };
+
+    const deadline = Date.now() + 60_000;
+    let result = await checkPlatformAvailability();
+    while (!result.ready && Date.now() < deadline) {
+      await wait(1000);
+      result = await checkPlatformAvailability();
+    }
+    return result;
   } catch (error) {
-    return {
-      ready: false,
-      started: false,
-      message: error.message || 'Unable to start the platform stack.',
-    };
+    return { ready: false, message: error.message || 'Unable to start the platform stack.' };
   }
+};
+
+// Serialize startup and configuration writes so Compose sees a complete settings file.
+let platformOperation = Promise.resolve();
+let pendingStartup;
+const withPlatform = (operation) => {
+  const result = platformOperation.then(operation);
+  platformOperation = result.catch(() => {});
+  return result;
+};
+const ensureOnce = () => {
+  pendingStartup ??= withPlatform(ensurePlatformRunning).finally(() => { pendingStartup = undefined; });
+  return pendingStartup;
 };
 
 ipcMain.handle('platform:check', async () => {
@@ -263,16 +179,16 @@ ipcMain.handle('platform:check', async () => {
 });
 
 ipcMain.handle('platform:ensure', async () => {
-  return ensurePlatformRunning();
+  return ensureOnce();
 });
 
 ipcMain.handle('integrations:status', async () => {
   return checkIntegrations();
 });
 
-ipcMain.handle('integrations:save', async (_event, credentials) => {
-  if (!existsSync(path.join(platformRoot, 'docker-compose.yml'))) {
-    throw new Error('The platform repository could not be located.');
+ipcMain.handle('integrations:save', (_event, credentials) => withPlatform(async () => {
+  if (!existsSync(composePath)) {
+    throw new Error('The platform Compose configuration could not be located.');
   }
 
   const current = await readIntegrationConfiguration();
@@ -286,44 +202,37 @@ ipcMain.handle('integrations:save', async (_event, credentials) => {
     };
   }
 
-  const temporaryPath = `${envPath}.${process.pid}.tmp`;
-  await fs.writeFile(temporaryPath, updated.content, { encoding: 'utf8', mode: 0o600 });
-  await fs.rename(temporaryPath, envPath);
-  await fs.chmod(envPath, 0o600);
-
-  const docker = checkDockerAvailability();
-  if (!docker.available) {
-    return {
-      saved: true,
-      restarted: false,
-      updatedKeys: updated.updatedKeys,
-      message: 'Credentials were saved. Restart the platform stack to apply them.',
-      status: await checkIntegrations(),
-    };
+  if (packagedPlatform) {
+    await fs.mkdir(packagedPlatform.settingsDir, { recursive: true, mode: 0o700 });
+  }
+  const temporaryPath = `${envPath}.${randomUUID()}.tmp`;
+  try {
+    await fs.writeFile(temporaryPath, updated.content, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
+    await fs.rename(temporaryPath, envPath);
+  } finally {
+    await fs.rm(temporaryPath, { force: true });
   }
 
   try {
-    const services = [];
-    if (updated.updatedKeys.includes('TWEEPY_BEARER_TOKEN')) {
-      services.push('profile_search', 'social_mapping');
+    if (packagedPlatform) {
+      // Compose recreates the services whose environment changed.
+      await startPackagedPlatform(packagedPlatform, runDocker);
+    } else {
+      await checkDocker(runDocker);
+      const services = [];
+      if (updated.updatedKeys.includes('TWEEPY_BEARER_TOKEN')) {
+        services.push('profile_search', 'social_mapping');
+      }
+      if (updated.updatedKeys.some((key) => key.startsWith('TWILIO_'))) {
+        services.push('phone_search');
+      }
+      await runDocker(['compose', 'up', '-d', '--force-recreate', ...services], { cwd: platformRoot });
     }
-    if (
-      updated.updatedKeys.includes('TWILIO_ACCOUNT_SID')
-      || updated.updatedKeys.includes('TWILIO_AUTH_TOKEN')
-    ) {
-      services.push('phone_search');
-    }
-    await runCommand(
-      docker.binary,
-      ['compose', 'up', '-d', '--force-recreate', ...services],
-      platformRoot,
-    );
-    await wait(5000);
     return {
       saved: true,
       restarted: true,
       updatedKeys: updated.updatedKeys,
-      message: 'Credentials were saved and the API services were restarted.',
+      message: 'Credentials were saved and the platform services were updated.',
       status: await checkIntegrations(),
     };
   } catch (error) {
@@ -331,11 +240,11 @@ ipcMain.handle('integrations:save', async (_event, credentials) => {
       saved: true,
       restarted: false,
       updatedKeys: updated.updatedKeys,
-      message: `Credentials were saved, but the services could not restart: ${error.message}`,
+      message: `Credentials were saved. ${error.message}`,
       status: await checkIntegrations(),
     };
   }
-});
+}));
 
 const createWindow = () => {
   // Create the browser window.
@@ -358,6 +267,15 @@ const createWindow = () => {
     mainWindow.webContents.openDevTools();
   }
 };
+
+if (packagedPlatform && !app.requestSingleInstanceLock()) app.quit();
+
+app.on('second-instance', () => {
+  const window = BrowserWindow.getAllWindows()[0];
+  if (!window) return;
+  if (window.isMinimized()) window.restore();
+  window.focus();
+});
 
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
